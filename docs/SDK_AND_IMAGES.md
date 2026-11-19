@@ -77,8 +77,9 @@ One image, built from `templates/image/Dockerfile`, published by the release wor
 - **Registry:** `ghcr.io/ets-public/brevi-sandbox:VERSION` and `:latest`, linux/amd64 first (arm64 later if a
   platform asks). Built by a Linux job in `release.yml` on Mondays only, so the cost is one Docker build a week, about
   10 minutes of Linux time.
-- **Contents:** Brevi, the minimal Rust toolchain it builds with, gcc and libc headers, python3, a warmed
-  `BREVI_CACHE`, the SDK. Variants: `brevi-sandbox:VERSION` (python3 is CPython, `brevi-python` beside it) and
+- **Contents:** Brevi, the minimal Rust toolchain it builds with, gcc and libc headers, python3, the runtime
+  libraries prebuilt into a read-only seed (`BREVI_CACHE_SEED=/opt/brevi-seed`, root's; from v0.28.3, before which
+  a world-writable shared `BREVI_CACHE` held them), the SDK. Each user keeps their own cache. Variants: `brevi-sandbox:VERSION` (python3 is CPython, `brevi-python` beside it) and
   `brevi-sandbox:VERSION-python3` (the shim is `python3`, CPython is `python3.real`).
 - **Platforms:** E2B (template built from the image), Daytona (snapshot from the image), Modal
   (`Image.from_registry`), Cloudflare Sandbox (its own Dockerfile already matches the image body, checked by

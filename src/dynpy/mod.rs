@@ -1261,10 +1261,14 @@ fn lib_copies(own: &HashSet<String>) -> Vec<String> {
 
 // The runtime as a library, built once per rustc version into the cache.
 fn runtime_lib(cache: &Path, rustc_v: &str) -> Result<PathBuf, String> {
-    let dir = cache.join("dynrt").join(format!("{:016x}", fnv(&[RUNTIME, rustc_v])));
+    let name = format!("{:016x}", fnv(&[RUNTIME, rustc_v]));
+    let dir = cache.join("dynrt").join(&name);
     let lib = dir.join("libbrevi_dyn.rlib");
     if lib.exists() {
         return Ok(lib);
+    }
+    if let Some(seeded) = crate::seed_file(&Path::new("dynrt").join(&name).join("libbrevi_dyn.rlib")) {
+        return Ok(seeded);
     }
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     // programs built side by side wait for one build of the runtime instead of each building it
