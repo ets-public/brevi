@@ -50,6 +50,32 @@ pub mod api {
     pub fn parse_bv(src: &str) -> bool {
         crate::parser::parse_program(src).is_ok()
     }
+    // The typed build's front end after parsing, as compile_once runs it minus libraries, crates and the GUI:
+    // aliasing checks for Python files, records, inference and the typed emitter. No rustc, no files.
+    pub fn front_end(src: &str) -> bool {
+        let Ok(items) = crate::parser::parse_program(src) else { return false };
+        let py = crate::python_style(src);
+        crate::infer::PY.store(py, std::sync::atomic::Ordering::Relaxed);
+        let mut items = items;
+        if py {
+            if !crate::alias::writeback(&mut items).is_empty() {
+                return false;
+            }
+            let mut errs = crate::alias::share_marks(&mut items);
+            errs.extend(crate::alias::share_writebacks());
+            if !errs.is_empty() {
+                return false;
+            }
+        }
+        let Ok(mut items) = crate::typed(items, py, false) else { return false };
+        crate::emit::auto_try(&mut items);
+        let mut em = crate::emit::Emitter::new(&items, false);
+        em.py_mode = py;
+        crate::moves::mark_moves(&mut items);
+        em.borrow_loops = true;
+        let _ = em.program(&items);
+        em.diags.is_empty()
+    }
     pub fn parse_py(src: &str) -> bool {
         crate::dynpy::parse::parse(src).is_ok()
     }

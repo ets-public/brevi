@@ -1779,7 +1779,7 @@ impl Parser {
         match self.next() {
             Tok::Ident(s) if s == "_" => Ok(Pat::Wild),
             Tok::Ident(s) => {
-                if s.chars().next().unwrap().is_uppercase() {
+                if s.chars().next().is_some_and(|c| c.is_uppercase()) {
                     let mut args = Vec::new();
                     if self.eat_sym("(") {
                         while !self.is_sym(")") {

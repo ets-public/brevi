@@ -90,3 +90,10 @@ path = "fuzz_targets/bundle_unpack.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "front_end"
+path = "fuzz_targets/front_end.rs"
+test = false
+doc = false
+bench = false
