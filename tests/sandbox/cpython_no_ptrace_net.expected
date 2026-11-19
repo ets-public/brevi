@@ -1,0 +1,25 @@
+{"path":"pybridge","why":"ctypes, os run in CPython","py":["ctypes","os"]}
+ptrace refused
+process_vm_readv refused
+process_vm_writev refused
+pidfd_getfd refused
+userfaultfd refused
+pidfd_open refused
+exit 0
+-- dynamic
+ptrace refused
+process_vm_readv refused
+process_vm_writev refused
+pidfd_getfd refused
+userfaultfd refused
+pidfd_open refused
+exit 0
+-- typed
+{"path":"pybridge","why":"ctypes, os run in CPython","py":["ctypes","os"]}
+ptrace refused
+process_vm_readv refused
+process_vm_writev refused
+pidfd_getfd refused
+userfaultfd refused
+pidfd_open refused
+exit 0

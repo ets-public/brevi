@@ -2706,7 +2706,11 @@ impl Emitter {
             // A None put in a JSON slot: JSON null (no type to take ax_none's from).
             Expr::Call(name, args, _) if name == "ax_to_json" && matches!(args.as_slice(), [(_, Expr::Call(n, a, _))] if n == "none" && a.is_empty()) => "Json::Null".to_string(),
             Expr::Call(name, args, line) => {
-                self.line = *line;
+                // A call the inference made (`ax_jas_int(..)`, line 0) keeps the statement's line for its errors.
+                if *line != 0 {
+                    self.line = *line;
+                }
+                let line = &{ self.line };
                 // A call to a checked function inside a try that catches its error, or inside another checked
                 // function (where the error propagates with ?).
                 let ck_catch = self.py_mode

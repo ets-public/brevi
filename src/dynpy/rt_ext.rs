@@ -2976,6 +2976,7 @@ pub fn ext_module_attr2(m: &str, n: &str) -> Option<V> {
         ("fractions", "Fraction") => V::Class(ext_class("fractions.Fraction")),
         ("re", "Pattern") => V::Class(ext_class("re.Pattern")),
         ("inspect", "Signature") => V::Class(sig_class()),
+        ("inspect", "Parameter") => V::Class(param_class()),
         // the type's Py_TPFLAGS_IS_ABSTRACT: set when a non-empty __abstractmethods__ is in the class's own dict
         ("inspect", "isabstract") => builtin("isabstract", |a: Args| {
             let o = match (&a.p[..], &a.k[..]) {

@@ -3721,7 +3721,13 @@ fn json_value(c: &[char], i: &mut usize) -> R<Json> {
                 *i += 1;
             }
             let t: String = c[start..*i].iter().collect();
-            t.parse::<f64>().map(|v| Json::Num { v, f: t.contains(['.', 'e', 'E']) }).map_err(|_| bad(start))
+            let f = t.contains(['.', 'e', 'E']);
+            // Json numbers are f64: an int past 2^53 would lose digits (9007199254740993 read as ...992), so
+            // stop instead; `brevi run` then re-runs a Python file on the dynamic build, which keeps every digit.
+            if !f && t.parse::<i128>().map_or_else(|_| t.len() > 30 && t.trim_start_matches('-').bytes().all(|b| b.is_ascii_digit()), |n| n.unsigned_abs() > 1 << 53) {
+                panic!("AX_DYN: a JSON int past 2**53 (the typed build keeps JSON numbers as 64-bit floats)");
+            }
+            t.parse::<f64>().map(|v| Json::Num { v, f }).map_err(|_| bad(start))
         }
         _ => Err(bad(*i)),
     }
@@ -6345,6 +6351,10 @@ impl AxToJson for Json {
 }
 impl AxToJson for i64 {
     fn ax_json(&self) -> Json {
+        // Past 2^53 the f64 inside Json would round the int: stop rather than give another number.
+        if self.unsigned_abs() > 1 << 53 {
+            panic!("AX_DYN: an int past 2**53 kept in a value of mixed type");
+        }
         Json::Num { v: *self as f64, f: false }
     }
 }
@@ -6402,7 +6412,7 @@ impl<A: AxToJson, B: AxToJson, C: AxToJson, D: AxToJson, E: AxToJson, F: AxToJso
 // `total += c[3]` with c a JSON tuple: only a whole number keeps total an int, as in Python.
 pub fn ax_jint(o: Json) -> i64 {
     match o {
-        Json::Num { v, .. } if v.fract() == 0.0 && v.abs() < 1e15 => v as i64,
+        Json::Num { v, .. } if v.fract() == 0.0 && v.abs() <= 9007199254740992.0 => v as i64,
         o => panic!("cannot add {} to an int here", ax_json_py(&o, false)),
     }
 }
@@ -6413,7 +6423,7 @@ pub fn ax_unsupported(what: String) -> String {
 // A dynamic value given where an int or a str is taken.
 pub fn ax_jas_int(o: Json) -> i64 {
     match o {
-        Json::Num { v, f } if v.fract() == 0.0 && v.abs() < 1e15 && !(f && ax_py_on()) => v as i64,
+        Json::Num { v, f } if v.fract() == 0.0 && v.abs() <= 9007199254740992.0 && !(f && ax_py_on()) => v as i64,
         o => panic!("expected an int here, got {}", ax_json_py(&o, true)),
     }
 }
@@ -7288,7 +7298,7 @@ impl AxIsInstance for Json {
         match self {
             Json::Null => "NoneType",
             Json::Bool { .. } => "bool",
-            Json::Num { v, f } => if v.fract() == 0.0 && v.abs() < 1e15 && !(*f && ax_py_on()) { "int" } else { "float" },
+            Json::Num { v, f } => if v.fract() == 0.0 && v.abs() <= 9007199254740992.0 && !(*f && ax_py_on()) { "int" } else { "float" },
             Json::Str { .. } => "str",
             Json::Arr { .. } => "list", Json::Tup { .. } if ax_json_sent(self) => "object", Json::Tup { .. } => "tuple",
             Json::Obj { .. } => "dict",

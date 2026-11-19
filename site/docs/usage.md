@@ -12,6 +12,8 @@ brevi check main.py                    # build without running: errors only
 brevi build main.py -o app --release   # an optimised binary to keep or ship
 ```
 
+Every command refuses an option it does not have (exit code 2, naming the nearest real one), so a misspelt `--sandbox` stops the build instead of building without the sandbox. Words after `--` always go to the program.
+
 A file can import its sibling `.py` files and packages as usual (`import util`, `from models import Order`); Brevi joins them into one program, and errors name the right file.
 
 ## Commands
@@ -41,6 +43,7 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | `--sandbox` | run, check, test | Refuse file access, native code and Python libraries unless the caller grants them (see [Sandbox](#sandbox)). |
 | `--allow read,write,net,native` | run, check, test | Under the sandbox, grant these capabilities (implies `--sandbox`). |
 | `--allow-read DIRS`, `--allow-write DIRS` | run, check, test | Under the sandbox, let the program read (or write) files only inside these folders or files, such as `--allow-read data --allow-write out` (implies `--sandbox`; from v0.26.0). |
+| `--allow-unlocked-python` | build, run, check, test | Under the sandbox, build a program that runs CPython where the kernel cannot lock CPython to the grants (macOS, Windows, a Linux kernel without Landlock); without it that build is refused. The program then warns on every start. Changes nothing on Linux with the locks (implies `--sandbox`; from the next release). |
 | `--allow-net HOSTS` | run, check, test | Under the sandbox, let the program reach only these hosts over the network, such as `--allow-net api.openai.com,localhost` (implies `--sandbox`; from v0.26.0). |
 | `--allow-py MODULES` | run, check, test | Under the sandbox, let CPython run these Python libraries only, such as `--allow-py yaml,pandas` (implies `--sandbox`). |
 | `--limit cpu=S,mem=MB,time=S,output=KB,file=MB,...` | run, test, verify | Stop the program at the first resource limit it reaches (see [Resource limits](#resource-limits)). Works with or without the sandbox, except `files`, `net` and `written`, which need `--sandbox`. |
@@ -183,7 +186,7 @@ Other mistakes that Python only finds when the line runs (an index out of range,
 **What it is, and what it is not.**
 
 - **No external security audit yet.** We have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox.
-- **The sandbox is a policy layer, not an isolation boundary.** It is a cheap capability and limit layer for agent code you mostly trust. Brevi's own build check and runtime code enforce it: there is no namespace, container or VM around the program, so the guarantee rests on Brevi being right. Only a program that loads CPython is held by the kernel as well, on Linux only: Landlock for files on 5.13 and later (where it is missing, named folders are refused and otherwise CPython keeps full file access), and on x86-64 and arm64 a seccomp filter against the network when none is granted. A file check and the open that follows are two steps.
+- **The sandbox is a policy layer, not an isolation boundary.** It is a cheap capability and limit layer for agent code you mostly trust. Brevi's own build check and runtime code enforce it: there is no namespace, container or VM around the program, so the guarantee rests on Brevi being right. Only a program that loads CPython is held by the kernel as well, on Linux only: Landlock for files on 5.13 and later, and on x86-64 and arm64 a seccomp filter against the network when none is granted. From v0.28.3, where a lock the program needs does not exist (macOS, Windows, a Linux without Landlock, the network on other Linux architectures), the build or the start is refused, never run unlocked silently; `--allow-unlocked-python` builds it anyway, and the program then warns on every start that CPython runs unlocked. A file check and the open that follows are two steps.
 - **Run untrusted code in a container or VM**, and use the sandbox as a second layer inside it.
 - **`--allow-py` and `--allow native` are full trust.** Grant them only to code you would run without a sandbox.
 
@@ -347,7 +350,7 @@ Running `brevi check`, `build` or `run` again on files that did not change repla
 
 From v0.27.0, `brevi run` and `brevi test` after an edit don't wait for the optimised build. They build the program unoptimised (rustc opt-level 0), run it at once, and build the optimised binary (opt-level 1, the default) in the background into the cache. The next run of the unchanged program uses the optimised one. On a 200-line program, a run after an edit went from 0.82 s to 0.32 s on the typed path, and from 1.50 s to 0.50 s on the dynamic path. The unoptimised binary runs slower (often 2x to 5x slower on loops), so for a long computation use `--release`, or set `BREVI_TIERED=0`. `brevi build` always makes the optimised binary, and so does a run with `--no-cache`. The very first build after installing Brevi, or after a Rust update, also builds Brevi's runtime library once, which takes about 5 to 15 seconds.
 
-Write the plain, direct program. Brevi runs plain loops over ints and lists several times faster than CPython (typed build: 1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks; when values change type it falls back to the dynamic build, median 0.85x), so code hand-tuned for CPython (bit tricks, packing values into big integers) is usually slower under Brevi, not faster.
+Write the plain, direct program. Brevi runs plain loops over ints and lists several times faster than CPython (typed build: 1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks; only a small share of CPython's own test programs take the typed build, and when values change type it falls back to the dynamic build, median 0.85x), so code hand-tuned for CPython (bit tricks, packing values into big integers) is usually slower under Brevi, not faster.
 
 ## Environment variables
 
