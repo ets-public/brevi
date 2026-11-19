@@ -3362,6 +3362,7 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         "gc" => gc_fn(n, a),
         "weakref" => weakref_fn(n, a),
         "inspect" if n == "isabstract" => call(&ext_module_attr2(m, n).expect("inspect.isabstract"), a),
+        "inspect" if n == "signature" => sig_signature(a),
         _ => ext_module_call(m, n, a),
     }
 }
@@ -5397,7 +5398,9 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> R {
             }
         }
         let order: Vec<V> = pos.iter().chain(kwo.iter()).cloned().collect();
-        let mut params: Vec<Sym> = vec!["self"];
+        // _process_class: '__dataclass_self__' when a field (of any kind) is named self
+        let self_name: Sym = if fields.iter().any(|(n, _)| *n == "self") { "__dataclass_self__" } else { "self" };
+        let mut params: Vec<Sym> = vec![self_name];
         params.extend(order.iter().map(field_name));
         let sig = Sig { name: sym(&format!("{}.__init__", c.qualname.get())), params: Box::leak(params.into_boxed_slice()), npos: pos.len() + 1, npo: 0, star: false, kwstar: false };
         // the defaults bind fills in (a factory is called afterwards, once per missing value)
@@ -5411,7 +5414,17 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> R {
         let slots = o.slots;
         let post = c.lookup("__post_init__").is_some();
         let all2 = all.clone();
-        add.push(("__init__", dc_fn(c, "__init__", move |a: Args| {
+        // what inspect.signature and __annotations__ read: the parameters with their defaults (the
+        // <factory> marker for a default_factory), each field's type, and 'return': None
+        let (np, sig_pd, sig_kd) = (pos.len() + 1, dflt[..pos.len() + 1].to_vec(), dflt[pos.len() + 1..].to_vec());
+        let sig_pos: Vec<&'static str> = sig.params[..np].to_vec();
+        let sig_kw: Vec<&'static str> = sig.params[np..].to_vec();
+        let mut ann = Dict::new();
+        for f in &order {
+            ann.set(s(field_name(f)), fget(f, "type"))?;
+        }
+        ann.set(s("return"), V::None)?;
+        let init = dc_fn(c, "__init__", move |a: Args| {
             let vals = bind(&sig, &dflt, a)?;
             let me = vals[0].clone();
             let mut initvars = vec![];
@@ -5450,7 +5463,12 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> R {
                 call_method(&me, "__post_init__", Args::p(initvars))?;
             }
             Ok(V::None)
-        }), None, false));
+        });
+        let init = with_sig(init, &sig_pos, 0, None, &sig_kw, None, sig_pd, sig_kd);
+        if let V::Func(f) = &init {
+            f.attrs.borrow_mut().push(("__annotations__", V::Dict(Rc::new(RefCell::new(ann)))));
+        }
+        add.push(("__init__", init, None, false));
     }
     if o.repr {
         let fs = names(&real, "repr")?;
