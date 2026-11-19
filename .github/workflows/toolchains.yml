@@ -153,7 +153,7 @@ jobs:
         run: |
           v=${{ matrix.rust }}
           pin=$(cat .github/rust-version)
-          grep -qx "ARG RUST_VERSION=$pin" Dockerfile || { echo "::error::Dockerfile's RUST_VERSION differs from .github/rust-version ($pin)"; exit 1; }
+          python3 tools/docker_pins.py
           if [ "$v" = stable ] && [ "${{ github.event_name }}" != schedule ]; then v=$pin; fi
           rustup toolchain install "$v" --profile minimal --no-self-update
           rustup default "$v"

@@ -12,9 +12,13 @@
 # It installs the latest Brevi release (or BREVI_VERSION), checked against the release's SHA256SUMS. The file
 # has no COPY lines, so the E2B, Daytona and Modal SDKs can build it from the text alone.
 #
-# Commands may run as any user (E2B runs them as `user`, Daytona as `daytona`), so the toolchain and the
-# build cache live in /opt and are writable by everyone.
-FROM debian:trixie-slim
+# Commands may run as any user (E2B runs them as `user`, Daytona as `daytona`), so the toolchain lives in /opt
+# (read-only) and the build cache and cargo's own files in /opt/brevi-cache (writable by everyone). Run as is,
+# the image runs as the unprivileged `brevi` user, never root.
+#
+# The base image is pinned by digest (Dependabot's docker updates keep it current), and Brevi, this file's
+# install.sh and the SDK all come from one release tag.
+FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 
 ARG BREVI_VERSION=
 ARG PYTHON3_SHIM=0
@@ -33,10 +37,13 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh 
  && sh /tmp/rustup.sh -y --profile minimal --no-modify-path && rm /tmp/rustup.sh \
  && rustc --version
 
-# Brevi, brevi-python beside it, and the SDK from the same release (main for the latest).
-RUN if [ -n "$BREVI_VERSION" ]; then ref="v${BREVI_VERSION#v}"; else ref=main; fi \
- && curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh -o /tmp/install.sh \
- && HOME=/tmp/home sh /tmp/install.sh && install -m 755 /tmp/home/.cargo/bin/brevi /usr/local/bin/brevi \
+# Brevi, brevi-python beside it, and the SDK, all from one release: BREVI_VERSION, or the latest release
+# (releases/latest redirects to releases/tag/vX.Y.Z), never main.
+RUN if [ -n "$BREVI_VERSION" ]; then ref="v${BREVI_VERSION#v}"; \
+    else ref=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/ets-public/brevi/releases/latest); ref=${ref##*/}; fi \
+ && case "$ref" in v[0-9]*.[0-9]*) ;; *) echo "no Brevi release found (got '$ref')" >&2; exit 1 ;; esac \
+ && curl -fsSL "https://raw.githubusercontent.com/ets-public/brevi/$ref/install.sh" -o /tmp/install.sh \
+ && HOME=/tmp/home BREVI_VERSION="$ref" sh /tmp/install.sh && install -m 755 /tmp/home/.cargo/bin/brevi /usr/local/bin/brevi \
  && ln -sf brevi /usr/local/bin/brevi-python && rm -rf /tmp/home /tmp/install.sh && brevi --version \
  && sdk="$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')/brevi" && mkdir -p "$sdk" \
  && curl -fsSL "https://raw.githubusercontent.com/ets-public/brevi/$ref/packaging/pypi/brevi/__init__.py" -o "$sdk/__init__.py" \
@@ -57,4 +64,8 @@ RUN if [ "$PYTHON3_SHIM" = 1 ]; then \
       ln -s brevi /usr/local/bin/python3 && ln -s /usr/bin/python3 /usr/local/bin/python3.real \
       && [ "$(echo 'print(6 * 7)' | python3)" = 42 ]; fi
 
+# cargo keeps its registry and lock files in CARGO_HOME; the toolchain stays in /opt/rust, read-only.
+ENV CARGO_HOME=/opt/brevi-cache/cargo
+RUN useradd --system --create-home --shell /bin/sh brevi && mkdir -p "$CARGO_HOME" && chmod a+rwX "$CARGO_HOME"
+USER brevi
 WORKDIR /workspace

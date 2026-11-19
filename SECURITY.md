@@ -62,7 +62,7 @@ A wrong answer that is not a sandbox escape is a normal bug: please open an issu
 
 ## Verifying a download
 
-Every release has a `SHA256SUMS` file. `install.sh` checks the archive against it and installs nothing if the check fails. To check by hand:
+Every release has a `SHA256SUMS` file. `install.sh` checks the archive against it, and also checks the archive's build-provenance attestation when `gh` is installed and signed in; it installs nothing if either check fails. To check by hand:
 
 ```
 sha256sum -c SHA256SUMS --ignore-missing
