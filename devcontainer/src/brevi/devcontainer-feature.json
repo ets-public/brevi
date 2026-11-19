@@ -2,7 +2,7 @@
   "id": "brevi",
   "version": "1.0.1",
   "name": "Brevi",
-  "description": "Installs Brevi (AI-written Python built natively and sandboxed), brevi-python and the Rust toolchain it builds with.",
+  "description": "Installs Brevi (Python MCP servers and CLIs built into one native binary), brevi-python and the Rust toolchain it builds with.",
   "documentationURL": "https://github.com/ets-public/brevi/tree/main/devcontainer",
   "licenseURL": "https://github.com/ets-public/brevi/blob/main/LICENSE",
   "options": {

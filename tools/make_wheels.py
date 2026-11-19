@@ -32,7 +32,7 @@ def metadata(ver):
         "Metadata-Version: 2.1",
         "Name: brevi",
         f"Version: {ver}",
-        "Summary: Compiles the plain Python AI agents write into fast native binaries via Rust, with one-line JSON errors and an MCP server.",
+        "Summary: Turns a Python MCP server or CLI into one fast-starting native binary via Rust, with no Python needed on the machine that runs it.",
         "Keywords: python,compiler,rust,mcp,ai-agents,llm,native,brevi",
         "License: Apache-2.0",
         "Project-URL: Homepage, https://brevi-lang.org",

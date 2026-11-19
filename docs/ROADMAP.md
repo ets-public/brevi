@@ -1,4 +1,12 @@
-# Roadmap: the default runtime for AI-written Python
+# Earlier roadmap (9 November 2026): the default runtime for AI-written Python
+
+> **No longer the focus (19 November 2026).** Brevi's one focus is now turning a small Python MCP server or CLI
+> into one native binary that needs no Python on the machine that runs it, and starts fast. The current plan is
+> [brevi-lang.org/docs/roadmap](https://brevi-lang.org/docs/roadmap) (source `site/docs/roadmap.md`): a real-server
+> test first, then binary size, memory that stays flat in long-running servers, clearer build output, macOS test
+> coverage, and possibly static Linux binaries. Brevi has stopped chasing full CPython parity and broad library
+> clones. This page is kept as the record of the earlier plan; its measures are still tracked in
+> [METRICS.md](METRICS.md), but its workstreams and phases below are not the plan any more.
 
 **Adopted:** 9 November 2026 · **Baseline:** v0.26.0 · **Team:** two humans and Claude Code, no funding yet.
 **Metrics:** every number here is defined in [METRICS.md](METRICS.md), with how it is measured and where the

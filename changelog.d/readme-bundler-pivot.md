@@ -1,0 +1,1 @@
+- The README, the PyPI, npm and crates.io package pages and the package descriptions now lead with what Brevi is for: turning a Python MCP server or CLI into one fast-starting binary that needs no Python on the machine that runs it, with its limits stated up front. docs/ROADMAP.md is marked as the earlier plan.

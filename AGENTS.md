@@ -1,6 +1,6 @@
 # Working on the Brevi compiler
 
-Brevi is a language for AI models that compiles to Rust. The guide models read is BREVI.md; the compiler is in src/ (lexer, parser, infer, emit, prelude).
+Brevi compiles Python (and its own `.bv` language) through Rust into native binaries; its current focus is turning small Python MCP servers and CLIs into one fast-starting binary (docs/ROADMAP.md). The guide models read for `.bv` is BREVI.md; the compiler is in src/ (lexer, parser, infer, emit, prelude).
 
 - Build: `cargo build --release`. Unit tests: `cargo test --release`.
 - Language tests: `BREVI=./target/release/brevi python3 tests/check_parallel.py` runs `tests/check.sh` in parallel, one job per CPU (every file in tests/run and tests/errors must match its .expected; `sh tests/check.sh` runs it one test at a time). A new section of check.sh starts with a `#== NAME` line (`#== NAME split` runs its first `for f in` loop one job per file, so those tests must not share files or ports). The runner warns when one job takes over 300 s or a run over 30 min: speed up the slow test, don't raise the budget.
