@@ -145,6 +145,45 @@ mod ax_pyffi {
     unsafe impl Sync for MethodDef {}
     unsafe impl Sync for Api {}
     unsafe impl Send for Api {}
+
+    // CPython's builtins that read the frame of the code calling them (locals, vars, eval, ...). Called from a
+    // native build there is no Python frame: CPython raises SystemError "frame does not exist" (or answers for
+    // the wrong frame). The build refuses each use it can see (src/frame_guard.rs); the bridges refuse one that
+    // comes back from CPython any other way (`importlib.import_module(name).locals`). Its name, if p is one.
+    // The GIL must be held.
+    pub unsafe fn frame_builtin(a: &Api, p: P) -> Option<&'static str> {
+        const FRAME: [&str; 7] = ["locals", "globals", "vars", "dir", "eval", "exec", "breakpoint"];
+        if p.is_null() {
+            return None;
+        }
+        let t = (a.Type)(p);
+        (a.DecRef)(t);
+        if t != a.TCFunction {
+            return None;
+        }
+        // a module-level builtin function's __self__ is its module
+        let own = (a.GetAttr)(p, c"__self__".as_ptr());
+        let b = (a.Import)(c"builtins".as_ptr());
+        let found = if own.is_null() || b.is_null() || own != b {
+            None
+        } else {
+            let n = (a.GetAttr)(p, c"__name__".as_ptr());
+            let mut len: isize = 0;
+            let c = if n.is_null() { std::ptr::null() } else { (a.UniAs)(n, &mut len) };
+            let name = if c.is_null() { None } else { std::str::from_utf8(std::slice::from_raw_parts(c as *const u8, len as usize)).ok().and_then(|x| FRAME.iter().copied().find(|f| *f == x)) };
+            if !n.is_null() {
+                (a.DecRef)(n);
+            }
+            name
+        };
+        for x in [own, b] {
+            if !x.is_null() {
+                (a.DecRef)(x);
+            }
+        }
+        (a.ErrClear)();
+        found
+    }
 }
 
 

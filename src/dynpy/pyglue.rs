@@ -1579,6 +1579,12 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
             (a.DecRef)(p);
             return Ok(v);
         }
+        // builtins.locals and the others that read the caller's frame (pyrt_load.rs frame_builtin); before the
+        // mapping below, which would hand back Brevi's own vars() or dir() to run on the wrong frame
+        if let Some(n) = ax_pyffi::frame_builtin(a, p) {
+            (a.DecRef)(p);
+            return Err(unsupported(&format!("builtins.{n} reached through a library value (it reads the caller's frame)")));
+        }
         // CPython's own builtin function (pickle.loads found builtins.getattr): the program's, so `is` holds
         if let Some(v) = pyd_builtin_fn_back(p) {
             return done(v);
@@ -3591,6 +3597,10 @@ unsafe fn pyd_write_back(args: &PydArgs) -> Result<(), E> {
 // f(*pre, *args, **kw); the result copied when `deep`.
 unsafe fn pyd_invoke(f: P, pre: &[V], args: &Args, deep: bool) -> R {
     let a = pyd_api();
+    // builtins.locals and the others that read the caller's frame (pyrt_load.rs frame_builtin): no frame here
+    if let Some(n) = ax_pyffi::frame_builtin(a, f) {
+        return Err(unsupported(&format!("builtins.{n} reached through a library value (it reads the caller's frame)")));
+    }
     out_flush();
     to_memo_enter();
     let dump = !f.is_null() && (f == pyd_ptr(&PYD_PDUMPS) || f == pyd_ptr(&PYD_PDUMP));
@@ -4282,6 +4292,9 @@ fn pyd_dt(cls: &str, meth: &str, a: Args) -> R {
     call(&f, a)
 }
 pub fn pyd_builtin(n: &str) -> R {
+    if matches!(n, "locals" | "globals" | "vars" | "dir" | "eval" | "exec" | "breakpoint") {
+        return Err(unsupported(&format!("CPython's builtins.{n} (it reads the caller's frame)")));
+    }
     let _g = PydGil::take();
     unsafe { pyv_ok(pyd_builtins_attr(n)) }
 }
