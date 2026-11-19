@@ -1,7 +1,9 @@
 # Showcases
-<!-- description: Real Python programs built with Brevi against CPython running the same files: MCP servers, token tools and pure-Python ML, with every number reproducible. -->
+<!-- description: Python MCP servers and CLIs built unchanged into one binary that needs no Python to run, with start time and binary size against CPython. -->
 
-Each showcase is an ordinary Python program, run two ways: built with `brevi build --release`, and run by CPython. Both sides get the same input. Output has to match byte for byte, or the showcase doesn't count. The native builds use Brevi 0.26.0 from `main`, the release that ships the libraries they need (`mcp`, `zoneinfo`, `open()`, `tiktoken`, and native builds of a program's own packages). The numbers are medians of 10 runs (3 for microgpt). The programs and the script that times them are in [bench/showcase](repo:bench/showcase), and `python3 bench/showcase/run.py` reruns them all.
+Each showcase is an unchanged Python MCP server or command-line tool, built with `brevi build --release` into one binary that does not link libpython and needs no Python on the machine that runs it. The same file also runs under CPython 3.13, and the output has to match byte for byte or the showcase doesn't count. How to build your own is in [Ship an MCP server or CLI as one binary](/docs/bundle-mcp).
+
+What is measured: for the servers, the time from start to the first tool call answered; for the token counter, the time to count one file; and for each, the size of the binary and whether it needs Python to run. Every number is the median of 10 runs (3 for microgpt) with Brevi 0.26.0 from `main` (commit 69caf93, which includes changes from v0.27.0) on Linux x86_64, 4 cores, Intel Xeon at 2.10 GHz, against CPython 3.13. The programs and the script that times them are in [bench/showcase](repo:bench/showcase), and `python3 bench/showcase/run.py` reruns them all.
 
 <!-- showcases:start -->
 
@@ -18,18 +20,7 @@ Measured 10 November 2026 with Brevi 0.26.0 from `main` (commit 69caf93, which i
 
 <!-- showcases:end -->
 
-Read the first three rows as start-up and import time: CPython spends most of its 718 ms, 730 ms and 375 ms starting up and importing `mcp` or `tiktoken`, and that is what Brevi's binary skips. That matters for MCP servers and tools a client starts often. The two rows that do real work for longer, counting a whole source tree and training micrograd, are 2.2x and 9.7x.
-
-## SQLite MCP server
-
-A notes server on the official [`mcp` Python SDK](https://github.com/modelcontextprotocol/python-sdk) with three tools: `add_note`, `search_notes` and a read-only `query`. The file is plain Python that CPython runs unchanged. Brevi builds it, SDK and SQLite included, into one 18 MB binary that does not link libpython. An agent client starts an MCP server for each session, so start-up time is the time a user waits.
-
-```bash
-brevi build bench/showcase/sqlite_mcp.py --release -o notes-mcp
-claude mcp add notes -- ./notes-mcp ~/notes.db
-```
-
-The timed session is what a client sends: `initialize`, `tools/list`, then three tool calls, each sent once the reply before it arrives.
+Read the first three rows as start-up and import time: CPython spends most of its 718 ms, 730 ms and 375 ms starting up and importing `mcp` or `tiktoken`, and that is what Brevi's binary skips. That matters for MCP servers and tools a client starts often. The token count over a whole source tree is the row that does real work for longer, and there Brevi is 2.2x faster: the win is start-up and import time, not throughput.
 
 ## The official MCP time server
 
@@ -45,6 +36,17 @@ claude mcp add time -- ./time-mcp
 
 The timed session sets `TZ=Europe/Paris`, lists the tools, then makes eight tool calls: two conversions, an unknown zone, a zone in the wrong case, a bad time, a tool that does not exist (a JSON-RPC error from the server's own middleware), and a conversion from the local zone. [time_mcp.py](repo:bench/showcase/time_mcp.py) is the package's `mcp-server-time` command: it reads `--local-timezone` and runs `serve`.
 
+## SQLite MCP server
+
+A notes server on the official [`mcp` Python SDK](https://github.com/modelcontextprotocol/python-sdk) with three tools: `add_note`, `search_notes` and a read-only `query`. The file is plain Python that CPython runs unchanged. Brevi builds it, SDK and SQLite included, into one 18 MB binary that does not link libpython. An agent client starts an MCP server for each session, so start-up time is the time a user waits.
+
+```bash
+brevi build bench/showcase/sqlite_mcp.py --release -o notes-mcp
+claude mcp add notes -- ./notes-mcp ~/notes.db
+```
+
+The timed session is what a client sends: `initialize`, `tools/list`, then three tool calls, each sent once the reply before it arrives.
+
 ## Token counting
 
 [count_tokens.py](repo:bench/showcase/count_tokens.py) does what [ttok](https://github.com/simonw/ttok) and [files-to-prompt](https://github.com/simonw/files-to-prompt) do for a model's context window. It walks the folders it is given with `os.walk`, skips hidden and build folders, reads each text file with `open()`, counts its tokens with tiktoken's `o200k_base`, and prints the largest files and the total. Brevi builds it, tiktoken and the vocabulary included, into one 11.5 MB binary. Counting one file takes 33 ms, most of which CPython spends starting up and loading tiktoken. On a whole source tree the counting itself takes most of the time, and Brevi still finishes in less than half the time CPython takes.
@@ -55,6 +57,18 @@ brevi build bench/showcase/count_tokens.py --release -o count-tokens
 ```
 
 Under `--sandbox` it needs a read grant, and `--allow-read src,docs` holds it to those folders.
+
+## What these numbers don't show
+
+- Binary sizes are not tuned yet: release builds are not stripped and use no link-time optimisation. Work to make them smaller is planned.
+- macOS is not measured. Brevi is released for macOS, but CI does not test the programs it builds there.
+- A server that imports a library Brevi does not build itself (pandas, yaml, ...) runs that library in CPython through the bridge. That binary needs libpython on the run machine, or `--standalone`, which packs CPython into the binary and unpacks it on first run. The fast start is lost on that path.
+- Start-up is the win. The dynamic build most programs take runs at about CPython's speed on compute, as the whole-tree token count shows.
+- A real-server test of popular MCP servers and CLIs is under way, and its raw results will be published here.
+
+## Compute-heavy programs
+
+micrograd and microgpt are not what the bundler is for. They show what the native build does on long-running Python that spends its time in compute, and they are kept here because the numbers are real. Their rows are in the table above.
 
 ## micrograd
 

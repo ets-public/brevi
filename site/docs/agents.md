@@ -1,7 +1,15 @@
 # For AI agents
-<!-- description: Connect a coding agent to Brevi: the MCP server, the Agent Skill, the Claude Code plugin, editor rules, llms.txt, and how to prompt for the cheapest working program. -->
+<!-- description: Secondary tools for coding agents: the brevi mcp server, Agent Skill, Claude Code plugin, editor rules, llms.txt and SDKs, and how to ship an MCP server your agent wrote. -->
 
-Brevi is built for the agent in the loop. The agent writes the plain Python it already knows, Brevi builds and runs it, and every problem comes back as one short line. There is nothing new for the model to learn, and no guide to load.
+Brevi also has tools for coding agents: an MCP server (`brevi mcp`) that builds, checks and runs code, an Agent Skill, a Claude Code plugin, editor rules, `llms.txt` and SDKs. This page is reference for those. The main use of Brevi is [building a script or MCP server into one binary](/docs/bundle-mcp).
+
+## Ship the MCP server your agent wrote
+
+If your agent wrote a small Python MCP server, build it into one native binary with `brevi build server.py --release -o my-server` and register it with `claude mcp add my-server -- ./my-server`. See [Ship an MCP server or CLI as one binary](/docs/bundle-mcp).
+
+This is different from `brevi mcp`. `brevi mcp` is Brevi's own MCP server: it gives an agent tools to check and run code. Building your own MCP server into a binary does not use it.
+
+With these tools, the agent writes the plain Python it already knows, Brevi builds and runs it, and every problem comes back as one short line. There is nothing new for the model to learn, and no guide to load.
 
 ## The loop
 
@@ -132,7 +140,3 @@ Errors are designed around what the next model call needs: the line, the problem
 ## Constrained decoding
 
 For local models, `grammar/` has a Lark grammar of the Brevi language and a llama.cpp GBNF copy, so a model can only write lines Brevi accepts. This applies to `.bv` programs, not Python.
-
-## Coming: brevi.run
-
-A hosted version of the same tools over HTTPS, for agents that cannot install a toolchain: send a program, get the output, test results or error lines back. It opens only once runs are held in a VM or microVM and an outside security review is done. See [brevi.run](https://brevi.run).

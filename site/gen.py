@@ -23,19 +23,22 @@ GITHUB = "https://github.com/ets-public/brevi"
 NAV = [
     ("Start", [
         ("index", "Overview", "index.md"),
+        ("quickstart", "Quickstart", "quickstart.md"),
+        ("bundle-mcp", "Ship an MCP server or CLI", "bundle-mcp.md"),
         ("install", "Install", "install.md"),
-        ("quickstart", "Quickstart for agents", "quickstart.md"),
         ("usage", "Using Brevi", "usage.md"),
     ]),
-    ("For AI agents", [
+    ("Proof and limits", [
+        ("showcases", "Showcases", "showcases.md"),
+        ("compatibility", "What builds, and limits", "compatibility.md"),
+        ("benchmarks", "Benchmarks", "benchmarks.md"),
+        ("path-split", "Speed by build path", "repo:docs/PATH_SPLIT.md"),
+    ]),
+    ("For coding agents", [
         ("agents", "Agents, MCP and skills", "agents.md"),
     ]),
     ("How it works", [
         ("architecture", "Architecture", "repo:docs/ARCHITECTURE.md"),
-        ("compatibility", "What works, and limits", "compatibility.md"),
-        ("benchmarks", "Benchmarks", "benchmarks.md"),
-        ("showcases", "Showcases", "showcases.md"),
-        ("path-split", "Speed by build path", "repo:docs/PATH_SPLIT.md"),
     ]),
     ("Brevi language (.bv)", [
         ("language", "Language guide", "repo:BREVI.md"),
@@ -102,7 +105,7 @@ def home_jsonld(version):
     return [{
         "@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Brevi",
         "url": "https://brevi-lang.org/", "image": "https://brevi-lang.org/social.png",
-        "description": "A compiler that builds the Python an AI coding agent writes into a fast-starting native binary through Rust, checked against CPython's output.",
+        "description": "A compiler that turns a Python MCP server or command-line tool into one fast-starting native binary through Rust, with no Python needed on the machine that runs it.",
         "applicationCategory": "DeveloperApplication", "applicationSubCategory": "Compiler",
         "operatingSystem": "Linux, macOS, Windows", "softwareVersion": version,
         "license": "https://www.apache.org/licenses/LICENSE-2.0",
@@ -448,7 +451,7 @@ def head(title, desc, extra=""):
 </head>""" % (html.escape(title), html.escape(desc, quote=True), extra)
 
 
-INSTALL = "uvx --python 3.13 brevi run --verify main.py"
+INSTALL = "uvx brevi build server.py --release -o my-server"
 
 # The theme the reader picked is applied before the first paint; without a pick the page follows the system.
 THEME_HEAD = """<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
@@ -478,13 +481,12 @@ def header(active, site="org", public=False):
     base = "" if site == "org" else "https://brevi-lang.org"
     links = [
         ("docs", base + "/docs/", "Docs"),
+        ("bundle-mcp", base + "/docs/bundle-mcp", "Ship a server"),
+        ("showcases", base + "/docs/showcases", "Showcases"),
         ("agents", base + "/docs/agents", "For agents"),
-        ("benchmarks", base + "/docs/benchmarks", "Benchmarks"),
-        ("pricing", base + "/pricing", "Pricing"),
-        ("run", "https://brevi.run" if site == "org" else "/", "brevi.run"),
     ]
     # On a phone the least needed links are hidden (they are in the footer too), so the bar fits without scrolling.
-    opt = {"run", "pricing", "benchmarks"}
+    opt = {"showcases", "agents"}
     nav = "".join('<a href="%s"%s%s>%s</a>' % (u, ' class="opt"' if k in opt else "", ' aria-current="page"' if k == active else "", t) for k, u, t in links)
     nav += '<a class="gh" href="%s" rel="noopener">%sGitHub</a>' % (GITHUB, GH_ICON)
     home = "/" if site == "org" else "https://brevi-lang.org/"
@@ -508,7 +510,7 @@ def footer(site="org", public=False):
   <div class="wrap get">
     <div>
       <h2>Install Brevi</h2>
-      <p>One command with <a href="https://docs.astral.sh/uv/" rel="noopener">uv</a>, no Rust needed, on Linux x86-64 and macOS; on Linux ARM64 and Windows from v0.28.3 (v0.28.2 and earlier: Rust from rustup). The install script, pip, npm and Docker are in the <a href="%s/docs/install">install guide</a>. Free and open source under Apache-2.0.</p>
+      <p>Install it on the machine that builds; the machine that runs your binary needs nothing. One command with <a href="https://docs.astral.sh/uv/" rel="noopener">uv</a>, no Rust needed on Linux, macOS and Windows from v0.28.3 (the first build fetches the pinned Rust once). The install script, pip, npm and Docker are in the <a href="%s/docs/install">install guide</a>. Free and open source under Apache-2.0.</p>
     </div>
     <div>
       %s
@@ -518,11 +520,11 @@ def footer(site="org", public=False):
   <div class="wrap cols">
     <div class="about">
       <span class="brand small">%sBrevi</span>
-      <p>A compiler that runs the Python AI agents write as native binaries. Apache-2.0.</p>
+      <p>Turns a Python MCP server or CLI into one fast native binary. Apache-2.0.</p>
     </div>
-    <div><h4>Docs</h4><a href="%s/docs/install">Install</a><a href="%s/docs/usage">Using Brevi</a><a href="%s/docs/agents">For agents</a><a href="%s/docs/architecture">Architecture</a></div>
-    <div><h4>Project</h4><a href="%s/docs/benchmarks">Benchmarks</a><a href="%s/docs/showcases">Showcases</a><a href="%s/docs/roadmap">Roadmap</a><a href="%s/docs/changelog">Changelog</a><a href="%s/docs/faq">FAQ</a><a href="%s/pricing">Pricing</a><a href="%s/docs/contributing">Contributing</a></div>
-    <div><h4>Elsewhere</h4>%s<a href="https://brevi.run">brevi.run</a><a href="%s/llms.txt">llms.txt</a><a href="mailto:support@brevi-lang.org">support@brevi-lang.org</a></div>
+    <div><h4>Docs</h4><a href="%s/docs/bundle-mcp">Ship a server</a><a href="%s/docs/install">Install</a><a href="%s/docs/usage">Using Brevi</a><a href="%s/docs/agents">For agents</a><a href="%s/docs/architecture">Architecture</a></div>
+    <div><h4>Project</h4><a href="%s/docs/benchmarks">Benchmarks</a><a href="%s/docs/showcases">Showcases</a><a href="%s/docs/roadmap">Roadmap</a><a href="%s/docs/changelog">Changelog</a><a href="%s/docs/faq">FAQ</a><a href="%s/docs/contributing">Contributing</a></div>
+    <div><h4>Elsewhere</h4>%s<a href="%s/llms.txt">llms.txt</a><a href="mailto:support@brevi-lang.org">support@brevi-lang.org</a></div>
   </div>
 </footer>
 %s""" % (base, install_line(), base, GITHUB, GH_ICON, LOGO % (20, 20), base, base, base, base, base, base, base, base, base, base, base, gh, base, SITE_JS)
