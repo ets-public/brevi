@@ -4412,7 +4412,7 @@ fn write_of(cx: &Cx, t: &Ex, selfp: Option<&str>, d: &mut Direct) {
 }
 
 // The arguments of a call into code outside the program (the standard library, a builtin): it may change what
-// it is given. A module's attribute passed on (`os.open(p, os.O_RDONLY)`, `re.search(x, t, re.I)`) is not an
+// it is given (a list grows, a dict is filled). A module's attribute passed on (`os.open(p, os.O_RDONLY)`, `re.search(x, t, re.I)`) is not an
 // assignment target: at most the object it names changes, which a held place reaches only as a field or a
 // global of that name (`import __main__` makes the module's globals attributes), so the name counts as both.
 fn args_write(cx: &Cx, args: &[Arg], d: &mut Direct) {
@@ -4423,6 +4423,10 @@ fn args_write(cx: &Cx, args: &[Arg], d: &mut Direct) {
                 d.w.f.insert(f.clone());
                 d.w.g.insert(f.clone());
             }
+            // a module-level name that only ever holds a scalar (a number, a string, an object, whose fields
+            // are counted by name where they are set): a call can rebind the name only by assigning it, which
+            // the program's own writes count, and has no list inside it to grow
+            Ex::Name(n) if matches!(cx.place(n), Pl::G(_)) && cx.p.kl.get(&(MODULE, n.clone())) == Some(&K::S) => {}
             _ => write_of(cx, v, None, d),
         }
     }

@@ -14,6 +14,7 @@ This page records what has been done to test Brevi's security, how to repeat it,
 | Static analysis | CodeQL (`security-extended`) on Rust, Python and the workflows | GitHub, weekly (`.github/workflows/codeql.yml`) | from 2026-11-16 |
 | Dependencies | `cargo audit` and `cargo deny` (`deny.toml`) on every Cargo.lock; OSV advisories for every dependency three times a week (`tools/advisories.py`); Dependabot | maintainer's machine; GitHub (`upstream.yml`) | audit/deny from 2026-11-16 |
 | Unsafe code | `cargo geiger` on the compiler and `tools/unsafe_inventory.py`, which also counts the runtime code pasted into programs | maintainer's machine | 862 `unsafe` uses on 2026-11-16, 820 of them in runtime code (FFI glue for CPython, DuckDB, ONNX Runtime, SQLite, the network) |
+| Undefined behaviour in generated code | the Rust the typed build writes, run under Miri (`tools/miri_emitted.py`) | cloud container (nightly + miri) | first runs 2026-11-18 and 2026-11-19 (below) |
 | Sanitizers | the compiler's unit tests under AddressSanitizer (`-Zsanitizer=address`, `-Zbuild-std`) | maintainer's machine | script ready; first run pending |
 | Windows | Application Verifier and PageHeap on built programs; the planted-DLL attempts below | maintainer's Windows machine | planned |
 | Supply chain | actions pinned by SHA (`tools/workflow_guard.py`); SBOM, build provenance and a reproducible-build check on every release; engine libraries pinned by SHA-256; Rust pinned in CI; fuzz dependencies pinned in `fuzz/Cargo.lock` | GitHub | in place |
@@ -59,6 +60,14 @@ A crash that has been fixed stays fixed: its input is kept in `fuzz/regressions/
 | `bundle_inflate` | 721,420 | 246 | nothing |
 | `bundle_unpack` | — | 377 | **a bug, fixed:** a file time past what `SystemTime` holds panicked. It had no security impact: the bundle is the program's own trailer, and changing it means changing the program. |
 
+### Miri on generated code
+
+`python3 tools/miri_emitted.py FILE.py...` turns each file into Rust with `brevi emit` (typed build, guard off) and runs it with `cargo +nightly miri run` (needs `rustup toolchain install nightly --profile minimal --component miri,rust-src`). It prints OK, UB, ERR (rustc refused the program, so it goes to the dynamic build) or TIMEOUT per file. Miri is slow, so this is a review tool, not a CI step.
+
+**2026-11-18.** About 150 corpus programs that build typed: 3 showed undefined behaviour (listed under Findings). After the fix, 0 (5 timed out).
+
+**2026-11-19.** All 66 `tests/typed` programs and the `tests/path/py_held_ref_*` repros, 300 s each: 59 OK, 0 UB in `tests/typed`, 6 timeouts, 6 rustc refusals (nightly rustc, not findings). The repros `py_held_ref_a3` and `a5` still show UB when forced typed with the guard off: that is what they test, and the guard sends both to the dynamic build, which matches CPython.
+
 ## Self red-team
 
 Each attempt tries to break one promise in THREAT_MODEL.md. Attempts are written down here whether they succeed or fail. Exploit code is model-written, so it runs only inside `tools/modelbox.py`, never on a maintainer's machine. A successful attempt is a vulnerability: it is fixed in its own security point release, as [SECURITY.md](../SECURITY.md) describes, and recorded here once the fix ships.
@@ -83,3 +92,4 @@ A finding is listed with its details once a fixed release has shipped. Before th
 | 2026-11-16 | code review | Temporary folders (build folders, cargo projects, MCP work folders, background build slots, a `--standalone` binary's CPython with no home folder) had fixed names in the shared temp folder, so another local user on a unix machine could create them first and read or change what Brevi built or ran. Now every one lives in `$TMPDIR/brevi-UID` (else `~/.cache/brevi/tmp`), used only when it is owned by the user, private, and under parents no one else can change. Windows was not affected. | v0.28.1 and earlier, Linux, macOS and other unix | v0.28.2 (#602) |
 | 2026-11-16 | fuzzing and code review | `brevi mcp --http` read a request before checking its token with no bound on chunked body size, time or connections, so a client without the token could make it hold a lot of memory or keep connections open (denial of service; no code execution, no token bypass). Now a body past 4 MiB gets 413, a silent or slow request is closed (30 s idle, 120 s whole), and at most 64 connections are served. stdio `brevi mcp` was not affected. | v0.26.0 to v0.28.1, only with `--http` | v0.28.2 (#603) |
 | 2026-11-17 | code review | A command-line finding in how sandbox options are read; details are listed here once the fixed release ships. | v0.28.2 and earlier | the next point release |
+| 2026-11-18 | Miri and code review | A memory-safety finding in the Rust the typed build writes; details are listed here once the fixed release ships. | v0.28.3 and earlier | the next point release |
