@@ -68,7 +68,7 @@ These are the parts we would keep and reuse on another project.
 
 ## Why we stopped
 
-The bundler was the best direction we had left, and it failed its first real test with 0 of 10 servers. Getting those servers to build natively would have meant copying fastmcp and much more of asyncio and pydantic, and then keeping up with every new release of each. That is the same treadmill we had stopped on 19 November. We had spent only 20 days, so it was cheap to stop. Changing direction a fifth time would have cost more than writing this up honestly.
+The bundler was the best direction we had left, and it failed its first real test with 0 of 10 servers. Getting those servers to build natively would have meant copying fastmcp and much more of asyncio and pydantic, and large third-party SDKs like boto3, chromadb and GitPython, and then keeping up with every new release of each. That is the same treadmill we had stopped on 19 November. We had spent only 20 days, so it was cheap to stop. Changing direction a fifth time would have cost more than writing this up honestly.
 
 ## State at archive
 
