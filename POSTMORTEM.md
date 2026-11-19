@@ -72,7 +72,7 @@ The bundler was the best direction we had left, and it failed its first real tes
 
 ## State at archive
 
-- **main:** before archiving, it gets the AxRow aliasing-UB fix (from branch `47y27x`), the real-server report (#688), and an "experimental, archived" notice on the site.
+- **main:** holds the real-server report (#688) and an "experimental, archived" notice on the site (#689). **The AxRow aliasing-UB fix did not land.** It stays unmerged on branch `47y27x` and in PR #692, so the use-after-free, wrong answer and stale read above are still present in main and in v0.28.3.
 - **Known runtime limits we did not fix:**
   - the `rt_gen` stack-switching assembly doesn't save floating-point control state and has no unwind info;
   - `AX_ASCII` caches pointer, length and capacity in relaxed atomics;
@@ -81,7 +81,7 @@ The bundler was the best direction we had left, and it failed its first real tes
   - every AxRow is leaked by design.
 
   None of these are in [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md), so this list is the record of them.
-- **Open pull requests:** closed, each with a note.
+- **Open pull requests:** left open as they were. None of them will be merged.
 - **Releases:** everything up to v0.28.3 stays downloadable. There will be no further releases or security fixes. Do not use Brevi for anything that matters.
 - **Reuse:** the code is Apache-2.0. Parts that could be useful on their own:
   - the conformance harness (`tools/conformance.py`)
