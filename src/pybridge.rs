@@ -1337,7 +1337,7 @@ pub fn lock_refusal() -> Result<(), String> {
     ))
 }
 
-// Under --sandbox, CPython's network is held by the kernel too (Linux seccomp, pyrt_load.rs ax_pyb_nonet):
+// Under --sandbox, CPython's network is held by the kernel too (Linux seccomp, pyrt_load.rs ax_pyb_seccomp):
 // 0 no hold (no sandbox, or --allow net), 1 no network at all (nothing granted), 2 hosts named with
 // --allow-net, which the kernel cannot hold CPython to, so the program is refused when CPython starts.
 fn net_hold() -> u8 {
