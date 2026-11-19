@@ -5,14 +5,14 @@ Installs Brevi on a GitHub Actions runner, for CI jobs and agents that run there
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: ets-public/brevi/setup@v0.28.2
+  - uses: ets-public/brevi/setup@v0.28.3
   - run: brevi run main.py
   - run: brevi verify main.py --input tests/
 ```
 
 | Input | Default | |
 | --- | --- | --- |
-| `version` | the tag the action is used at (`setup@v0.28.2` installs 0.28.2), else the latest release | a version such as `0.28.2` |
+| `version` | the tag the action is used at (`setup@v0.28.3` installs 0.28.3), else the latest release | a version such as `0.28.3` |
 | `cache` | `true` | keep `BREVI_CACHE` between runs with `actions/cache` |
 
 Outputs: `version` (the version installed) and `path` (the `brevi` executable). Available from v0.27.1.

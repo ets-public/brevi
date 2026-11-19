@@ -508,7 +508,7 @@ def footer(site="org", public=False):
   <div class="wrap get">
     <div>
       <h2>Install Brevi</h2>
-      <p>One command with <a href="https://docs.astral.sh/uv/" rel="noopener">uv</a>, no Rust needed, on Linux x86-64 and macOS; on Linux ARM64 and Windows from the next release (Rust from rustup until then). The install script, pip, npm and Docker are in the <a href="%s/docs/install">install guide</a>. Free and open source under Apache-2.0.</p>
+      <p>One command with <a href="https://docs.astral.sh/uv/" rel="noopener">uv</a>, no Rust needed, on Linux x86-64 and macOS; on Linux ARM64 and Windows from v0.28.3 (v0.28.2 and earlier: Rust from rustup). The install script, pip, npm and Docker are in the <a href="%s/docs/install">install guide</a>. Free and open source under Apache-2.0.</p>
     </div>
     <div>
       %s

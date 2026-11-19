@@ -1,6 +1,6 @@
 # Known issues
 
-This page describes `main` as of v0.28.2 (16 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
+This page describes `main` as of v0.28.3 (19 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
 
 ## Correctness and conformance
 
@@ -40,7 +40,7 @@ Outside the aim: text on stderr, and output CPython itself changes between runs 
 
 Windows builds, runs and verifies programs natively, including library calls through CPython (the `python` on PATH needs its DLL). Differences:
 
-- `--limit mem` works, held by a Job Object around the program and every process it starts; from the next release `cpu` does too (it counts their user and kernel time together; v0.28.2 and earlier refuse it on Windows). `time`, `output`, `written`, `net` and `files` work as on Linux. `--limit file`, `fds` and `threads` are refused with an error, not half enforced: Windows has no limit on the size of one file or on the handles a process opens, and a Job Object can cap processes but not threads.
+- `--limit mem` works, held by a Job Object around the program and every process it starts; from v0.28.3 `cpu` does too (it counts their user and kernel time together; v0.28.2 and earlier refuse it on Windows). `time`, `output`, `written`, `net` and `files` work as on Linux. `--limit file`, `fds` and `threads` are refused with an error, not half enforced: Windows has no limit on the size of one file or on the handles a process opens, and a Job Object can cap processes but not threads.
 - `--standalone` works (from v0.28.1; one .exe carrying CPython, unpacked once into `%LOCALAPPDATA%\brevi\py`). It is refused at build time with Microsoft Store Python or a Python for another CPU. A cache folder deep enough to push an unpacked file past 260 characters is refused at run time (set `BREVI_PY_CACHE` shorter). A standalone .exe changed after the build, for example by code signing, refuses to run rather than use an installed Python.
 - Windows' own SQLite can be a different version from CPython's, so version-specific output may differ.
 - DuckDB and ONNX Runtime need their libraries installed (`pip install duckdb`, onnxruntime 1.16 or later).
