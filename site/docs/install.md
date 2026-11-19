@@ -1,17 +1,27 @@
 # Install Brevi
-<!-- description: Install the Brevi compiler on Linux, macOS or Windows from the GitHub release, pip, npm, Docker, or from source. -->
+<!-- description: Install Brevi on the machine that builds your binary, on Linux, macOS or Windows: uvx, install script, pip, npm, Docker or source. -->
+
+Install Brevi on the machine that builds. The machine that runs your binary needs nothing for a native build (a build that calls Python libraries needs libpython there, or `--standalone`).
 
 Brevi turns programs into Rust and calls `rustc` to build them. You do not need to install Rust: when no `rustc` is on the PATH, brevi fetches the Rust release it is tested with on its first build, and, when the machine has no C linker either, zig to link with. Both are checked against SHA-256 sums compiled into brevi and kept in Brevi's own folder (see [The pinned toolchain](#the-pinned-toolchain)). This works on Linux x86-64 and macOS (Apple silicon and Intel) from v0.28.2, and on Linux ARM64 and Windows (x86-64 and ARM64) from v0.28.3.
 
 ## One command (with uv)
 
-With [uv](https://docs.astral.sh/uv/) installed, this downloads brevi, its pinned toolchain on the first build, and CPython 3.13 (the version Brevi matches) to check against, then builds `main.py`, runs it, and checks its output against CPython's:
+With [uv](https://docs.astral.sh/uv/) installed, this downloads brevi, fetches its pinned toolchain on the first build, and builds `server.py` into one binary:
+
+```
+uvx brevi build server.py --release -o my-server
+```
+
+The first build fetches about 300 MB once (Rust and zig) and builds Brevi's runtime, which takes one to two minutes; later builds take seconds. See [Ship an MCP server or CLI as one binary](/docs/bundle-mcp) for what to do with the binary.
+
+To also check a run against CPython 3.13 (the version Brevi matches):
 
 ```
 uvx --python 3.13 brevi run --verify main.py
 ```
 
-The first build fetches about 300 MB once (Rust and zig) and builds Brevi's runtime, which takes one to two minutes; later builds take seconds. `uvx brevi mcp` starts the MCP server the same way.
+`uvx brevi mcp` starts Brevi's own MCP server the same way.
 
 ## Requirements
 

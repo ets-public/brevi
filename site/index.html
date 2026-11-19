@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Brevi: the verified native runtime for agent-written Python</title>
-<meta name="description" content="Brevi is the verified native runtime for agent-written Python: the agent writes ordinary Python, Brevi compiles it through Rust into a native binary, checks each run against CPython, and says in one line of JSON when it cannot.">
+<title>Brevi: turn your Python MCP server or CLI into one fast binary</title>
+<meta name="description" content="Brevi compiles a Python MCP server or command-line tool, imports included, into one native binary that needs no Python on the machine that runs it and starts in milliseconds.">
 <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -21,36 +21,34 @@ __HEADER__
   <div class="hero-band ink">
     <div class="wrap hero">
       <div>
-        <p class="eyebrow">The verified native runtime for agent-written Python</p>
-        <h1>Your agent writes Python. Brevi runs it native, checked against CPython.</h1>
-        <p class="lede">Brevi compiles the plain Python your agent writes into a native binary, and <code>brevi run --verify</code> checks each run against CPython 3.13. Your harness gets a certified native answer, CPython's own answer, or an answer marked unchecked, never an unchecked one passed off as checked, and every refusal is <strong>one line of JSON</strong> the model can act on.</p>
-        <div class="install" aria-label="Install command"><span class="p">$</span><code>uvx --python 3.13 brevi run --verify main.py</code><button class="copy" type="button" data-copy>Copy</button></div>
-        <p class="fine">One command with <a href="https://docs.astral.sh/uv/" rel="noopener">uv</a>: brevi, CPython 3.13 and the pinned Rust, nothing else to install on Linux x86-64 and macOS. Linux ARM64 and Windows too from v0.28.3 (v0.28.2 and earlier need Rust from rustup). <a href="/docs/install">Other ways to install</a>.</p>
+        <p class="eyebrow">For Python MCP servers and command-line tools</p>
+        <h1>Turn your Python MCP server or CLI into one fast binary.</h1>
+        <p class="lede">Brevi compiles the Python you already have, imports included, into one native file. The machine that runs it needs <strong>no Python, no virtualenv and no pip install</strong>, and an MCP server built this way answers its first tool call in tens of milliseconds instead of most of a second.</p>
+        <div class="install" aria-label="Build command"><span class="p">$</span><code>uvx brevi build server.py --release -o my-server</code><button class="copy" type="button" data-copy>Copy</button></div>
+        <p class="fine">One command with <a href="https://docs.astral.sh/uv/" rel="noopener">uv</a> on the machine that builds. With no Rust installed, the first build fetches Brevi's pinned Rust once (about 300 MB). Linux x86-64 and ARM64, macOS and Windows. <a href="/docs/install">Other ways to install</a>.</p>
         <div class="actions">
-          <a class="btn primary" href="/docs/quickstart">Quickstart for agents</a>
+          <a class="btn primary" href="/docs/bundle-mcp">Ship an MCP server</a>
           <a class="btn ghost" href="__GITHUB__" rel="noopener">__GHICON__View on GitHub</a>
-          <a class="more" href="/docs/agents">Set up an agent →</a>
+          <a class="more" href="/docs/showcases">See the measurements →</a>
         </div>
-        <p class="fine">It aims to print exactly what CPython prints and to refuse what it cannot match; today it matches <strong>97.3% of the scored suite, with 83 string-as-code tests excluded</strong>, of CPython 3.13's own tests, so it is a preview, not a drop-in <code>python3</code>. When Brevi cannot build a file, it says why in one line of JSON.</p>
+        <p class="fine">Brevi is a preview. Not every server builds yet; when one does not, the build says which line stopped it in one line of JSON. <a href="#limits">What to know before you ship</a>.</p>
         <p class="status jl">__STATUS__</p>
       </div>
-      <div class="term" aria-label="The agent loop: check, fix, verify">
-        <div class="tbar"><span>$ brevi check main.py</span><span>agent's first draft</span></div>
-<pre class="out wrapline">{"line":16,"msg":"name 'totl' is not defined","fix":"did you mean total?"}</pre>
-        <div class="tbar"><span>$ echo 1000 | brevi run --verify main.py</span><span>after fixing line 16</span></div>
-<pre class="out wrapline">168 primes below 1000
-sum 76127
-{"verify":"identical",...,"path":"typed","exit":0,"stdout_same":true,"stderr_same":true,...}</pre>
-        <div class="tbar"><span>$ brevi run --verify clock.py</span><span>cannot be checked: said so</span></div>
-<pre class="out wrapline">{"verify":"refused","why":"reads the clock","msg":"not checked against CPython: ..."}</pre>
+      <div class="term" aria-label="Build an MCP server into one binary and register it">
+        <div class="tbar"><span>$ brevi build server.py --release -o time-mcp</span><span>build once</span></div>
+<pre class="out wrapline"># the official mcp-server-time, unchanged: one 19.2 MB file</pre>
+        <div class="tbar"><span>$ ldd time-mcp | grep -c libpython</span><span>no Python linked</span></div>
+<pre class="out wrapline">0</pre>
+        <div class="tbar"><span>$ claude mcp add time -- ./time-mcp</span><span>register it</span></div>
+<pre class="out wrapline"># first tool call answered in 35 ms (CPython 3.13: 730 ms)</pre>
       </div>
     </div>
     <div class="wrap">
       <div class="stats">
-        <div class="stat"><span class="num">9.3x</span><span class="lab">Median speed over CPython</span><span class="sub">1.6x to 37.9x on 12 compute benchmarks, typed build, which only a small share of programs take; dynamic build median 0.85x</span></div>
-        <div class="stat"><span class="num">1,043 of 1,072</span><span class="lab">CPython 3.13 tests matched</span><span class="sub">97.3% of the scored suite, with 83 string-as-code tests excluded, in v__VERSION__; none answer differently. <a href="/docs/compatibility#in-numbers">All the numbers</a></span></div>
-        <div class="stat"><span class="num">591 of 591</span><span class="lab">Saved agent programs still match</span><span class="sub">A regression check, not a measure of Python coverage</span></div>
-        <div class="stat"><span class="num">1 line</span><span class="lab">Per error, as JSON</span><span class="sub">With the line number and, where it can, a fix</span></div>
+        <div class="stat"><span class="num">1 file</span><span class="lab">To copy to the run machine</span><span class="sub">No Python, venv or packages there: native builds link no libpython</span></div>
+        <div class="stat"><span class="num">35 ms</span><span class="lab">To the first tool call</span><span class="sub">Official mcp-server-time, unchanged; CPython 3.13 takes 730 ms on the same machine</span></div>
+        <div class="stat"><span class="num">19.2 MB</span><span class="lab">That server's binary</span><span class="sub">Sizes are not tuned yet; making release binaries smaller is next</span></div>
+        <div class="stat"><span class="num">0 edits</span><span class="lab">To the server's source</span><span class="sub">Brevi 0.26.0, Linux x86-64, Xeon 2.1 GHz, 4 cores, median of 10. <a href="/docs/showcases">How it was measured</a></span></div>
       </div>
     </div>
   </div>
@@ -58,14 +56,13 @@ sum 76127
   <section class="band" id="how">
     <div class="wrap">
       <div class="band-head">
-        <h2>One loop: write, check, verify, run</h2>
-        <p>The model has no new syntax to learn and no guide to load. Brevi replaces <code>python3</code> in the agent's loop, and adds a check CPython alone cannot give: that the fast answer is the right one. <a href="__GITHUB__/tree/main/examples/agent-loop">Run the whole loop yourself</a>.</p>
+        <h2>From server.py to one file</h2>
+        <p>Already have a Python MCP server? Ship it as one binary without rewriting it in Go or Rust. <a href="/docs/bundle-mcp">The full guide</a>.</p>
       </div>
-      <ol class="steps four">
-        <li><h3>The agent writes Python</h3><p>Ordinary Python 3, with the standard library or installed packages, in one file or many. No type annotations needed.</p></li>
-        <li><h3>Brevi compiles it</h3><p>It infers the type of every value and writes Rust; where a type changes at run time, Rust over dynamic values instead. A sure mistake comes back before anything runs, as one JSON line with the line number and a fix.</p></li>
-        <li><h3><code>--verify</code> checks it against CPython</h3><p>Each run is compared with CPython 3.13 on the same input. Same answer: a certificate the harness can log. Different: CPython's answer, and a <code>{"verify":"differs"}</code> line. Cannot be compared (clock, files, network): a <code>{"verify":"refused"}</code> line, never a silent pass.</p></li>
-        <li><h3>Native, or through MCP</h3><p>The checked program runs as a native binary, or through <code>brevi mcp</code>, where <code>run</code> checks by default: under its default sandbox, a program on the typed build is checked against Brevi's dynamic build, and any other run says it was not checked. Outside the sandbox, a file Brevi cannot build runs in CPython, and one line says which line stopped the build.</p></li>
+      <ol class="steps">
+        <li><h3>Keep your Python</h3><p>An MCP server on the official <code>mcp</code> SDK, or a CLI on <code>argparse</code>, in one file or a package. Brevi builds the standard library and common packages (<code>mcp</code>, <code>pydantic</code>, <code>httpx</code>, <code>requests</code>, <code>sqlite3</code>, <code>tiktoken</code>) from its own native copies.</p></li>
+        <li><h3>Build it once</h3><p><code>brevi build server.py --release -o my-server</code> compiles it through Rust. If an import has to run in CPython instead, the build prints one line naming it, so you know before you ship.</p></li>
+        <li><h3>Ship the file</h3><p>Copy it to the machine that runs it, register it with <code>claude mcp add my-server -- ./my-server</code> or any MCP client, or put a CLI on the PATH. No install step for your users.</p></li>
       </ol>
     </div>
   </section>
@@ -73,106 +70,38 @@ sum 76127
   <section class="band" id="why">
     <div class="wrap">
       <div class="band-head">
-        <h2>Speed and safety without asking the model for Rust</h2>
-        <p>Models write Python most reliably, but CPython is slow and finds many mistakes only when the broken line runs. Rust is fast and safe, but it takes a model longer and costs more tokens to write. With Brevi the model writes Python and the program runs as Rust.</p>
+        <h2>What changes for the people who run it</h2>
+        <p>An MCP client starts a server for each session, and a CLI starts on every call, so start-up is time the user waits. CPython spends most of it importing packages; a Brevi binary skips that.</p>
       </div>
       <div class="vs-wrap">
         <table class="vs">
-          <thead><tr><th></th><th>Python (CPython)</th><th>Rust</th><th class="win">Brevi</th></tr></thead>
+          <thead><tr><th></th><th>Shipped as Python</th><th class="win">Built with Brevi</th></tr></thead>
           <tbody>
-            <tr><td>What the agent writes</td><td>Python</td><td>Rust: lifetimes, borrows, types</td><td class="win">The same Python</td></tr>
-            <tr><td>Run time (Dijkstra, 100k nodes)</td><td>2.19 s</td><td>0.21 s</td><td class="win">0.40 s</td></tr>
-            <tr><td>Integer overflow</td><td>Unlimited integers</td><td>Wraps in release builds unless checked</td><td class="win">Unlimited, like Python: past 64 bits a value becomes a big integer</td></tr>
-            <tr><td>Errors the agent reads</td><td>Multi-line tracebacks</td><td>Long compiler messages</td><td class="win">One JSON line with the line number and a fix</td></tr>
-            <tr><td>Deployment</td><td>An interpreter and its packages</td><td>One binary</td><td class="win">One binary (library programs need Python's shared library, or <code>--standalone</code> on Linux and Windows to carry it)</td></tr>
+            <tr><td>What the run machine needs</td><td>The right Python, a venv and the packages</td><td class="win">The binary (Linux: a glibc as new as the build machine's)</td></tr>
+            <tr><td>First tool call, mcp-server-time</td><td>730 ms</td><td class="win">35 ms</td></tr>
+            <tr><td>First tool call, SQLite MCP server</td><td>718 ms</td><td class="win">27 ms</td></tr>
+            <tr><td>Counting tokens in one file (tiktoken)</td><td>375 ms</td><td class="win">33 ms</td></tr>
+            <tr><td>Your source</td><td>Unchanged</td><td class="win">Unchanged</td></tr>
           </tbody>
         </table>
       </div>
+      <p class="note" style="margin: 16px 0 0; max-width: 60rem;">Brevi 0.26.0 (commit 69caf93) against CPython 3.13 on Linux x86-64, Intel Xeon at 2.10 GHz with 4 cores, 10 November 2026, median of 10 runs, same output byte for byte. The win is start-up and import time, not throughput: counting a whole source tree, where the work dominates, is only 2.2x faster. <a href="/docs/showcases">All showcases</a></p>
     </div>
   </section>
 
-  <section class="band" id="evidence">
+  <section class="band" id="limits">
     <div class="wrap">
       <div class="band-head">
-        <h2>Measured against CPython, wrong answers included</h2>
-        <p>Brevi's aim is that a build either prints what CPython prints or is refused. These are the counts today, with the ones that miss that aim.</p>
-      </div>
-      <div class="conf">
-        <div class="bars">
-          <div class="bar-row">
-            <div class="cap"><span>v__VERSION__, the current release (1,072 tests)</span><b>1,043 <small>of 1,072 match</small></b></div>
-            <div class="bar" role="img" aria-label="Of 1,072 tests: 1,043 match, 26 refused, none answer differently, none crash, 3 could not be extracted"><i class="seg-match" style="width: 97.3%"></i><i class="seg-refused" style="width: 2.4%"></i><i class="seg-other" style="width: 0.3%"></i></div>
-          </div>
-          <div class="bar-row">
-            <div class="cap"><span>v0.27.0 (311 tests)</span><b>250 <small>of 311 match</small></b></div>
-            <div class="bar" role="img" aria-label="Of 311 tests: 250 match, 38 refused, 8 answer differently, none crash, 15 could not be extracted"><i class="seg-match" style="width: 80.4%"></i><i class="seg-refused" style="width: 12.2%"></i><i class="seg-differ" style="width: 2.6%"></i><i class="seg-other" style="width: 4.8%"></i></div>
-          </div>
-          <ul class="legend">
-            <li><i class="seg-match"></i>Prints what CPython prints</li>
-            <li><i class="seg-refused"></i>Refused with a reason</li>
-            <li><i class="seg-differ"></i>Builds, answers differently</li>
-            <li><i class="seg-crash"></i>Crashes</li>
-            <li><i class="seg-other"></i>Could not be extracted</li>
-          </ul>
-        </div>
-        <div>
-          <h3>CPython's own tests</h3>
-          <p>At v0.28.2, of 1,072 tests from CPython 3.13's own suite (ten files, among them <code>test_set</code> and <code>test_patma</code>), 1,043 build natively and print exactly what CPython prints, the rest are refused with a reason, and none answer differently or crash. Of 2,053 of CPython's tests for the standard-library modules agents use most, 1,989 match and none answer differently (tests that run a string as code are left out by design). At v0.27.0 it was 250 of 311 core tests with 8 answering differently, and 250 of 554 stdlib tests with 22. <a href="/docs/compatibility#in-numbers">The numbers</a></p>
-        </div>
+        <h2>What to know before you ship</h2>
+        <p>The limits today, stated plainly. The <a href="/docs/roadmap">roadmap</a> says which ones are being worked on.</p>
       </div>
       <div class="grid3">
-        <div class="point"><span class="fig">591 of 591</span><h3>No regressions on agent programs</h3><p>All 591 saved programs from our own benchmark runs still build and match CPython byte for byte, with the same exit status. They passed once and are kept so nothing breaks again: a regression check, not a measure of how much Python works.</p></div>
-        <div class="point"><span class="fig">{"line":N,"msg":…,"fix":…}</span><h3>One-line errors</h3><p>Build and run-time errors are one line that names the source line, a fraction of a traceback's tokens. The agent fixes that line and runs again.</p></div>
-        <div class="point"><span class="fig">allow read, write</span><h3>Only the caller grants access</h3><p>Under <code>brevi run --sandbox</code> and in the MCP tools, a program cannot read or write files, call native code or load libraries unless the caller allows it. <code>allow</code> lines in the source grant nothing. The sandbox is a policy layer, not an isolation boundary: there is no container or VM around the program, and <code>--allow-py</code> and <code>--allow native</code> are full trust. Run untrusted code in a container or VM. No external security audit yet: we have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox. <a href="https://github.com/ets-public/brevi/blob/main/SECURITY.md#where-brevi-stands">Security</a></p></div>
-        <div class="point"><span class="fig">numpy · requests · pydantic</span><h3>Installed packages work</h3><p>numpy, requests, pydantic, the LLM SDKs, MCP servers, sqlite3 and other common libraries build with Brevi's own native copies; other installed packages, such as pandas, run in CPython inside the native program. tkinter apps build too, and can be tested without a screen.</p></div>
-        <div class="point"><span class="fig">Rust stable · beta · nightly</span><h3>Tested against new toolchains</h3><p>CI builds daily on Rust stable and the newest and next Python, and weekly on Rust beta and nightly. Every benchmark program that once passed must keep passing.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <section class="band" id="errors">
-    <div class="wrap">
-      <div class="band-head">
-        <h2>One line per error</h2>
-        <p>An agent pays for every token it reads. A Brevi error names the line, says what went wrong and, where it can, suggests a fix.</p>
-      </div>
-      <div class="split">
-        <div class="term">
-          <div class="tbar"><span>$ python3 rows.py</span><span>CPython</span></div>
-<pre class="out">Traceback (most recent call last):
-  File "/work/rows.py", line 2, in &lt;module&gt;
-    print(xs[5])
-          ~~^^^
-IndexError: list index out of range</pre>
-        </div>
-        <div class="term">
-          <div class="tbar"><span>$ brevi run rows.py</span><span>1 line</span></div>
-<pre class="out wrapline">{"e":"runtime","line":2,"msg":"index 5 out of range for length 1"}</pre>
-          <div class="tbar"><span>$ brevi check broken.py</span><span>before running</span></div>
-<pre class="out wrapline">{"line":8,"msg":"name 'totl' is not defined","fix":"did you mean total?"}</pre>
-        </div>
-      </div>
-      <p class="note" style="margin: 16px 0 0; max-width: 60rem;"><code>brevi check</code> reports certain mistakes before the program runs, with a fix: a name that is never defined, a method no type has, text added to a number. Mistakes Python only finds at run time (an index out of range) fail there, as in CPython. In Brevi's own <code>.bv</code> language every type mistake is caught before it runs. <a href="/docs/usage#errors">How errors work</a></p>
-    </div>
-  </section>
-
-  <section class="band" id="benchmarks">
-    <div class="wrap">
-      <div class="band-head">
-        <h2>What a model pays to write it</h2>
-        <p>Speed figures, with the typed and dynamic medians side by side, are on the <a href="/docs/benchmarks">benchmarks page</a>.</p>
-      </div>
-      <div style="max-width: 60rem;">
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Model cost, Brevi vs CPython</th><th class="n">Sonnet</th><th class="n">Haiku</th></tr></thead>
-              <tbody>
-                <tr><td>Release test, 24 tasks (v0.28.0, two runs)</td><td class="n">1.08x</td><td class="n">1.00x</td></tr>
-                <tr><td>4 heavy tasks, Brevi side told "write it plainly" (no CPython control yet)</td><td class="n">0.58x</td><td class="n">0.53x</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <p class="note">The full API cost for a model to write Python until the tests pass, with Brevi building the code against CPython running it, 9 November 2026. On ordinary tasks Brevi costs about the same as CPython, not less. The heavy-task figure comes from an extra prompt line given only to the Brevi side, so it does not yet show what Brevi itself saves; a CPython run with the same line is next. <a href="/docs/benchmarks">Method and all results</a></p>
+        <div class="point"><span class="fig">{"path":"pybridge",...}</span><h3>Some imports need CPython</h3><p>A package Brevi does not build itself (pandas, yaml, ...) runs in CPython inside the binary. That binary needs Python's shared library on the run machine, or <code>--standalone</code> to carry it (Linux and Windows), which unpacks on its first run. Either way it loses the fast start.</p></div>
+        <div class="point"><span class="fig">Linux · macOS · Windows</span><h3>Where the binaries run</h3><p>Linux binaries link the system glibc, so build on the oldest Linux you target; there is no static build yet. Brevi is released for macOS, but programs built on macOS are not yet tested in CI. Windows is a beta, with its limits in <a href="__GITHUB__/blob/main/docs/KNOWN_ISSUES.md#windows-beta">Known issues</a>.</p></div>
+        <div class="point"><span class="fig">0.85x median</span><h3>Start-up is the win, not throughput</h3><p>Most servers build over dynamic values, which run at about CPython's speed (0.5x to 1.4x on our compute benchmarks). A server that spends its time waiting on I/O or a model will not run its tool calls faster.</p></div>
+        <div class="point"><span class="fig">RSS over days</span><h3>Long-running servers</h3><p>A built program does not yet free some memory, such as reference cycles. That is fine for a session-length server; watch the memory of one that runs for days. Making it stay flat is on the roadmap.</p></div>
+        <div class="point"><span class="fig">mcp · pydantic · asyncio</span><h3>Not every server builds natively</h3><p>Brevi's copy of the MCP SDK follows the current SDK's <code>MCPServer</code> on stdio. A server that uses sampling, elicitation, auth, or the SSE and streamable HTTP apps runs on CPython's <code>mcp</code> instead, and servers written for the older <code>FastMCP</code> import do not build natively yet. We are building popular servers and CLIs unchanged and will publish the raw results, failures included.</p></div>
+        <div class="point"><span class="fig">--sandbox</span><h3>Security, plainly</h3><p>A built binary has the same access as any program you run. Brevi's <code>--sandbox</code>, for running code an agent wrote, is a policy layer, not an isolation boundary: there is no container or VM around the program, and <code>--allow-py</code> and <code>--allow native</code> are full trust. Run untrusted code in a container or VM. No external security audit yet: we have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox. <a href="__GITHUB__/blob/main/SECURITY.md#where-brevi-stands">Security</a></p></div>
       </div>
     </div>
   </section>
@@ -180,11 +109,11 @@ IndexError: list index out of range</pre>
   <section class="band" id="agents">
     <div class="wrap">
       <div class="band-head">
-        <h2>Tools for coding agents</h2>
-        <p>The compiler comes with an MCP server, a skill and plain-text docs, so an agent can build, check and fix programs without extra setup.</p>
+        <h2>Also for coding agents</h2>
+        <p>The same compiler helps an agent write and check Python before it ships: errors come back as one JSON line with the line number and a fix, and <code>brevi run --verify</code> checks a run against CPython 3.13. <a href="/docs/compatibility">How closely Brevi matches CPython</a>.</p>
       </div>
       <div class="cards">
-        <a class="card" href="/docs/agents#mcp-server"><h3>MCP server</h3><p><code>brevi mcp</code> serves check, run, test, verify, patch, edit, show and guide. The server keeps the program, so a fix sends only the lines that change.</p><span class="go">Set it up →</span></a>
+        <a class="card" href="/docs/agents#mcp-server"><h3>Brevi's own MCP server</h3><p><code>brevi mcp</code> gives an agent check, run, verify, patch and edit tools for the Python it writes. It is separate from the servers you build.</p><span class="go">Set it up →</span></a>
         <a class="card" href="/docs/agents#agent-skill-and-claude-code-plugin"><h3>Skill and plugin</h3><p>An Agent Skills package and a Claude Code plugin that tell the agent to write plain Python and build it with Brevi.</p><span class="go">Read the skill →</span></a>
         <a class="card" href="/docs/agents#llmstxt-and-markdown-docs"><h3>llms.txt</h3><p><code>/llms.txt</code>, <code>/llms-full.txt</code>, and every docs page as Markdown for agents to read.</p><span class="go">Agent docs →</span></a>
       </div>
@@ -195,29 +124,17 @@ IndexError: list index out of range</pre>
     <div class="wrap">
       <div class="band-head">
         <h2>Documentation</h2>
-        <p>From installing Brevi to how the compiler works inside.</p>
+        <p>From building your first binary to how the compiler works inside.</p>
       </div>
       <div class="rows">
-        <a href="/docs/install"><b>Install</b><span>Release binaries for Linux, macOS and Windows, the install script, and building from source.</span><i aria-hidden="true">→</i></a>
-        <a href="/docs/usage"><b>Using Brevi</b><span>run, build, check and test; release, native and standalone builds; errors, sandbox and GUI tests.</span><i aria-hidden="true">→</i></a>
-        <a href="/docs/architecture"><b>Architecture</b><span>How a source file becomes a native program: typed and dynamic builds, the library bridge, rustc.</span><i aria-hidden="true">→</i></a>
-        <a href="/docs/compatibility"><b>What works, and limits</b><span>Python compatibility, libraries, big integers and the known gaps.</span><i aria-hidden="true">→</i></a>
-        <a href="/docs/benchmarks"><b>Benchmarks</b><span>The release test, model cost and speed, with how each was measured.</span><i aria-hidden="true">→</i></a>
-        <a href="/docs/showcases"><b>Showcases</b><span>Real programs timed against CPython: MCP servers answering their first call in under 40 ms, a token counter 11x faster, and micrograd training 9.7x faster.</span><i aria-hidden="true">→</i></a>
+        <a href="/docs/bundle-mcp"><b>Ship an MCP server or CLI</b><span>Build, check and register a server as one binary, step by step, with what to do when an import falls to CPython.</span><i aria-hidden="true">→</i></a>
+        <a href="/docs/install"><b>Install</b><span>Brevi for the machine that builds: uv, the install script, pip, npm, Docker, or from source.</span><i aria-hidden="true">→</i></a>
+        <a href="/docs/showcases"><b>Showcases</b><span>Real MCP servers and CLIs built unchanged and timed against CPython, with size and whether they need Python.</span><i aria-hidden="true">→</i></a>
+        <a href="/docs/usage"><b>Using Brevi</b><span>build, run and check; release and standalone builds; which path a file took; errors.</span><i aria-hidden="true">→</i></a>
+        <a href="/docs/compatibility"><b>What builds, and limits</b><span>What runs native, what needs CPython, what is refused, and how closely Brevi matches CPython's own tests.</span><i aria-hidden="true">→</i></a>
         <a href="/docs/faq"><b>FAQ</b><span>Short answers to the questions people ask first.</span><i aria-hidden="true">→</i></a>
-        <a href="/docs/roadmap"><b>Roadmap</b><span>What is being built now and what comes next.</span><i aria-hidden="true">→</i></a>
+        <a href="/docs/roadmap"><b>Roadmap</b><span>What is being built now: real-server tests, smaller binaries, flat memory for long-running servers.</span><i aria-hidden="true">→</i></a>
       </div>
-    </div>
-  </section>
-
-  <section class="band" id="hosted">
-    <div class="wrap cta">
-      <div class="band-head">
-        <p class="eyebrow">Coming</p>
-        <h2>brevi.run: compile, run and test in the cloud</h2>
-        <p>A planned hosted service for agents that cannot install a Rust toolchain. Send a program and get back its output or its error lines.</p>
-      </div>
-      <div class="actions"><a class="btn ghost" href="https://brevi.run">About brevi.run</a><a class="btn ghost" href="/pricing#hosted">Join the waitlist</a></div>
     </div>
   </section>
 </main>

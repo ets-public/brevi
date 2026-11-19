@@ -434,3 +434,4 @@ footer.site .about p { margin: 12px 0 0; max-width: 22rem; }
   .stat .num { font-size: 1.5rem; }
   .actions .more { margin-left: 0; flex-basis: 100%; }
 }
+@media (max-width: 640px) { table.vs { min-width: 0; } table.vs th, table.vs td { padding: 12px; overflow-wrap: anywhere; } table.vs td:first-child, table.vs th:first-child { width: 30%; } }

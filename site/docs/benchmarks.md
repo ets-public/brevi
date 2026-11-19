@@ -1,7 +1,7 @@
 # Benchmarks
-<!-- description: Brevi's release test with Claude models, model cost against CPython, heavy-task results, and the comparison with Codon and Nuitka. -->
+<!-- description: Model cost and compute-speed results: Brevi's release test with Claude models, heavy tasks, and the comparison with Codon and Nuitka. -->
 
-Brevi is measured two ways: **what it costs an AI model** to reach a working program, and **how the built programs behave**, against CPython and against the other Python compilers. All benchmarks, logs and scripts are in the repository's `bench/` folder, so every number here can be rerun. Real programs built with Brevi, such as an MCP server, are timed on [Showcases](/docs/showcases).
+Start time and binary size for shipped MCP servers and CLIs are on [Showcases](/docs/showcases). This page holds the other two kinds of result: **what it costs an AI model** to reach a working program, and **how fast the built programs compute**, against CPython and against the other Python compilers. All benchmarks, logs and scripts are in the repository's `bench/` folder, so every number here can be rerun. Wherever a typed-build speed median is quoted, the dynamic-build median is given beside it.
 
 ## The release test
 

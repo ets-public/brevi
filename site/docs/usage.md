@@ -1,16 +1,28 @@
 # Using Brevi
-<!-- description: Brevi commands and flags: run, build, check, test; release, native and standalone builds; errors as JSON, the CPython fallback, the sandbox and GUI test mode. -->
+<!-- description: Brevi commands and flags: build a script or MCP server into one native binary, run it, check it; release, native and standalone builds; errors as JSON, the sandbox and GUI test mode. -->
 
-Brevi reads plain Python (`.py`) and its own language (`.bv`) with the same commands. Most people, and most agents, only need `brevi run`.
+Brevi turns a Python file (`.py`) or its own language (`.bv`) into one native binary. `brevi build` is the main command: it ships a program, such as a small MCP server or CLI script, as a single file that starts fast and, for a native build, needs no Python on the machine that runs it. `brevi run` builds and runs in one step, which is handy while you work.
 
 ## Quick start
 
 ```
-brevi run main.py < input.txt          # build natively (cached), then run
-brevi run main.py -- --verbose a.txt   # arguments after -- go to the program
-brevi check main.py                    # build without running: errors only
-brevi build main.py -o app --release   # an optimised binary to keep or ship
+brevi build server.py --release -o my-server   # one binary to ship
+./my-server                                    # run it, no Python needed (native build)
+brevi run main.py < input.txt                  # build (cached), then run
+brevi run main.py -- --verbose a.txt           # arguments after -- go to the program
+brevi check main.py                            # build without running: errors only
 ```
+
+To register a built MCP server with Claude Code: `claude mcp add my-server -- ./my-server`. The full walk-through is [Ship an MCP server or CLI as one binary](/docs/bundle-mcp).
+
+## Build machine and run machine
+
+| Machine | Needs |
+| --- | --- |
+| Build | Brevi and Rust. With no `rustc` on the PATH, the first build fetches Brevi's pinned Rust (about 300 MB, once). See [Install](/docs/install). |
+| Run | Nothing for a native build. A pybridge build (see [Which path ran](#which-path-ran)) needs libpython, or must be built with `--standalone`. On Linux the binary links the system glibc, so build on the oldest Linux you target. |
+
+More in [Ship an MCP server or CLI as one binary](/docs/bundle-mcp).
 
 Every command refuses an option it does not have (exit code 2, naming the nearest real one), so a misspelt `--sandbox` stops the build instead of building without the sandbox. Words after `--` always go to the program.
 
@@ -75,7 +87,7 @@ For a Python file, `brevi run`, `build` and `check` print one JSON line on stder
 {"path":"cpython","line":2,"fn":"g","why":"Brevi could not build it: unknown function eval()","by":"python3"}
 ```
 
-`path` is `typed`, `pybridge` (typed, with library calls in CPython), `dynamic` (native over dynamic values) or `cpython` (the fallback below). `line` and `fn` point at the code that kept the file off the typed path; rewriting that one function is usually enough. The typed path prints nothing. `--explain` adds the suggested fix and the other reasons; `BREVI_PATH=1` prints the line for every path, `BREVI_PATH=0` never. The MCP tools return the same report as structured data.
+`path` is `typed`, `pybridge` (typed, with library calls in CPython), `dynamic` (native over dynamic values) or `cpython` (the fallback below). `line` and `fn` point at the code that kept the file off the typed path; rewriting that one function is usually enough. A binary built with the `pybridge` path needs Python on the run machine (libpython, or build it with `--standalone`). The typed path prints nothing. `--explain` adds the suggested fix and the other reasons; `BREVI_PATH=1` prints the line for every path, `BREVI_PATH=0` never. The MCP tools return the same report as structured data.
 
 ## The CPython fallback
 
