@@ -30,10 +30,9 @@ says by how much each binary shrank.
 `--targets` is not on by default because no showcase meets its target yet (time_mcp was 19.2 MB on 11-10). Lane A2
 turns it on in the PR that first meets the targets, so from then on the targets hold like the 5% rule.
 
-## First breakdown (cloud container, main 20ab11d, rustc 1.100.0; not the PC numbers)
+## First breakdown (cloud container, main 20ab11d, the container's rustc 1.97.0, not the pinned 1.100.0; not the PC numbers)
 
 Both are larger than results.json's 11-10 sizes (11.5 and 18.0 MB at 0.26.0): the runtime has grown since.
-
 
 | | count_tokens | sqlite_mcp |
 |---|---|---|
@@ -50,10 +49,11 @@ Both are larger than results.json's 11-10 sizes (11.5 and 18.0 MB at 0.26.0): th
 | code: std, core, alloc | 0.4 MB | 0.4 MB |
 
 What it points at, for the size lanes:
-- A2 (release profile): `strip=symbols` removes the 1.8-3.2 MB symbol table outright. No LTO means every runtime function
-  is linked whether used or not: a token counter carries `np_module_call` and `make_dataclass`. LTO and
-  `codegen-units=1` should cut most of the 5.6-7.1 MB of runtime code.
-- A3 (runtime slicing): whatever of brevi_dyn LTO cannot drop (code reached through the dynamic dispatch tables).
+- A2 (release profile): `strip=symbols` removes the 1.8-3.2 MB symbol table outright. The linker already drops runtime functions
+  nothing calls, so a token counter still carrying `np_module_call` and `make_dataclass` means the dynamic dispatch
+  tables reach them. LTO and `codegen-units=1` shrink code by inlining and merging, but cannot drop what those tables
+  reach; measure before promising a number.
+- A3 (runtime slicing): the runtime code the dispatch tables keep alive, which only leaving modules out can cut.
 - A4 (embedded data): count_tokens has 2.6 MB more unnamed read-only data than sqlite_mcp, most likely the tiktoken
   ranks and unicode tables. No symbol covers it, so A4 starts by naming it.
 - In sqlite_mcp the library copies (6.6 MB) weigh as much as the runtime: the mcp models module alone is 0.9 MB of
