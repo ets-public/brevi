@@ -9,7 +9,7 @@ Brevi compiles ordinary Python to Rust and builds a native binary. Write the pro
 
 ## Setup
 
-Check that `brevi --version` works. If it does not and `uv` is installed, write `uvx --python 3.13 brevi` wherever this says `brevi` (or run `uv tool install --python 3.13 brevi` once): it fetches brevi, CPython 3.13 for `--verify`, and on the first build the Rust release Brevi is tested with (Linux x86-64 and macOS; Linux ARM64 and Windows need Rust from rustup until the next release). Without uv, run the repository's `install.sh`: it fetches the Rust toolchain if `rustc` is missing (Brevi compiles through it), then a prebuilt `brevi` from the latest release, verified against its `SHA256SUMS`, or builds it with `cargo install --git https://github.com/ets-public/brevi`.
+Check that `brevi --version` works. If it does not and `uv` is installed, write `uvx --python 3.13 brevi` wherever this says `brevi` (or run `uv tool install --python 3.13 brevi` once): it fetches brevi, CPython 3.13 for `--verify`, and on the first build the Rust release Brevi is tested with (Linux x86-64, Linux ARM64, macOS and Windows from v0.28.3; v0.28.2 and earlier need Rust from rustup on Linux ARM64 and Windows). Without uv, run the repository's `install.sh`: it fetches the Rust toolchain if `rustc` is missing (Brevi compiles through it), then a prebuilt `brevi` from the latest release, verified against its `SHA256SUMS`, or builds it with `cargo install --git https://github.com/ets-public/brevi`.
 
 ## Loop
 

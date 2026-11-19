@@ -40,4 +40,4 @@ cat: 1
 
 ## Status
 
-Brevi is a preview, at version __VERSION__. It builds most real-world agent-written Python natively today, and the [roadmap](/docs/roadmap) lists what is still missing. Install and run it in one command with `uvx --python 3.13 brevi run --verify main.py` (no Rust needed on Linux x86-64 and macOS; on Linux ARM64 and Windows from the next release), or with the script, `pip install brevi`, `npm install -g brevi`, `cargo install brevi` or from the GitHub release ([Install](/docs/install)); Homebrew and the hosted service at [brevi.run](https://brevi.run) are coming.
+Brevi is a preview, at version __VERSION__. It builds most real-world agent-written Python natively today, and the [roadmap](/docs/roadmap) lists what is still missing. Install and run it in one command with `uvx --python 3.13 brevi run --verify main.py` (no Rust needed on Linux x86-64 and macOS; on Linux ARM64 and Windows from v0.28.3), or with the script, `pip install brevi`, `npm install -g brevi`, `cargo install brevi` or from the GitHub release ([Install](/docs/install)); Homebrew and the hosted service at [brevi.run](https://brevi.run) are coming.

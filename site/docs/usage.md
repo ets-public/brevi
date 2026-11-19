@@ -43,7 +43,7 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | `--sandbox` | run, check, test | Refuse file access, native code and Python libraries unless the caller grants them (see [Sandbox](#sandbox)). |
 | `--allow read,write,net,native` | run, check, test | Under the sandbox, grant these capabilities (implies `--sandbox`). |
 | `--allow-read DIRS`, `--allow-write DIRS` | run, check, test | Under the sandbox, let the program read (or write) files only inside these folders or files, such as `--allow-read data --allow-write out` (implies `--sandbox`; from v0.26.0). |
-| `--allow-unlocked-python` | build, run, check, test | Under the sandbox, build a program that runs CPython where the kernel cannot lock CPython to the grants (macOS, Windows, a Linux kernel without Landlock); without it that build is refused. The program then warns on every start. Changes nothing on Linux with the locks (implies `--sandbox`; from the next release). |
+| `--allow-unlocked-python` | build, run, check, test | Under the sandbox, build a program that runs CPython where the kernel cannot lock CPython to the grants (macOS, Windows, a Linux kernel without Landlock); without it that build is refused. The program then warns on every start. Changes nothing on Linux with the locks (implies `--sandbox`; from v0.28.3). |
 | `--allow-net HOSTS` | run, check, test | Under the sandbox, let the program reach only these hosts over the network, such as `--allow-net api.openai.com,localhost` (implies `--sandbox`; from v0.26.0). |
 | `--allow-py MODULES` | run, check, test | Under the sandbox, let CPython run these Python libraries only, such as `--allow-py yaml,pandas` (implies `--sandbox`). |
 | `--limit cpu=S,mem=MB,time=S,output=KB,file=MB,...` | run, test, verify | Stop the program at the first resource limit it reaches (see [Resource limits](#resource-limits)). Works with or without the sandbox, except `files`, `net` and `written`, which need `--sandbox`. |
@@ -186,7 +186,7 @@ Other mistakes that Python only finds when the line runs (an index out of range,
 **What it is, and what it is not.**
 
 - **No external security audit yet.** We have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox.
-- **The sandbox is a policy layer, not an isolation boundary.** It is a cheap capability and limit layer for agent code you mostly trust. Brevi's own build check and runtime code enforce it: there is no namespace, container or VM around the program, so the guarantee rests on Brevi being right. Only a program that loads CPython is held by the kernel as well, on Linux only: Landlock for files on 5.13 and later, and on x86-64 and arm64 a seccomp filter against the network when none is granted. From v0.28.3, where a lock the program needs does not exist (macOS, Windows, a Linux without Landlock, the network on other Linux architectures), the build or the start is refused, never run unlocked silently; `--allow-unlocked-python` builds it anyway, and the program then warns on every start that CPython runs unlocked. A file check and the open that follows are two steps.
+- **The sandbox is a policy layer, not an isolation boundary.** It is a cheap capability and limit layer for agent code you mostly trust. Brevi's own build check and runtime code enforce it: there is no namespace, container or VM around the program, so the guarantee rests on Brevi being right. Only a program that loads CPython is held by the kernel as well, on Linux only: Landlock for files on 5.13 and later, and on x86-64 and arm64 a seccomp filter against the network when none is granted and, from v0.28.3, against reaching other processes (`ptrace`, `process_vm_readv/writev`, `pidfd_open`, `pidfd_getfd`, `userfaultfd`) whenever any hold is taken. From v0.28.3, where a lock the program needs does not exist (macOS, Windows, a Linux without Landlock, the network on other Linux architectures), the build or the start is refused, never run unlocked silently; `--allow-unlocked-python` builds it anyway, and the program then warns on every start that CPython runs unlocked. A file check and the open that follows are two steps.
 - **Run untrusted code in a container or VM**, and use the sandbox as a second layer inside it.
 - **`--allow-py` and `--allow native` are full trust.** Grant them only to code you would run without a sandbox.
 
@@ -267,7 +267,7 @@ The sandbox decides what a program may touch; `--limit` decides how much it may 
 
 | Limit | Unit | Holds | How |
 | --- | --- | --- | --- |
-| `cpu` | seconds | CPU time, all threads together | the kernel (`RLIMIT_CPU`); on Windows, from the next release, a Job Object, counting every process the program starts too |
+| `cpu` | seconds | CPU time, all threads together | the kernel (`RLIMIT_CPU`); on Windows, from v0.28.3, a Job Object, counting every process the program starts too |
 | `mem` | MB | address space on Linux; committed memory of the program and everything it starts on Windows | the kernel (`RLIMIT_AS`); on Windows a Job Object, from v0.27.0; not on macOS |
 | `time` | seconds | wall-clock time, waiting included | `brevi`, which stops the program |
 | `output` | KB | stdout and stderr together | `brevi`, which passes output on and stops the program at the limit |

@@ -19,9 +19,9 @@ Brevi is tested with, plus zig to link with when the machine has no C linker, ea
 into brevi. That is about 300 MB once and a minute or two; later builds take seconds. Fetching uses `curl` and `tar`
 (macOS and Windows have both; a bare Linux container needs `curl`, `ca-certificates` and `xz-utils`).
 
-Nothing else is needed on Linux x86-64 and macOS, from v0.28.2. Linux ARM64 and Windows get the same from the next
-release; until then, install Rust with [rustup](https://rustup.rs) first (on Windows it also asks for the Microsoft
-C++ build tools), then run the same command.
+Nothing else is needed on Linux x86-64 and macOS (from v0.28.2), or on Linux ARM64 and Windows (from v0.28.3). With
+v0.28.2 and earlier on Linux ARM64 or Windows, install Rust with [rustup](https://rustup.rs) first (on Windows it also
+asks for the Microsoft C++ build tools), then run the same command.
 
 The commands below say `brevi`: write `uvx --python 3.13 brevi` instead, or keep it on your PATH with
 `uv tool install --python 3.13 brevi`. The install script, pip, npm, Docker and the release archives:

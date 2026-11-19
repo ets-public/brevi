@@ -9,8 +9,7 @@
 # latest on PyPI, exactly as the docs say.
 # Linux runs in a bare ubuntu:24.04 container (no C compiler, so brevi links with zig); macOS and Windows runners
 # come with Rust, which each job moves out of the way first, so the install really fetches it.
-# Windows still installs Rust with rustup first: the quickstart says so until the release after v0.28.2, the first
-# with the pinned toolchain on Windows (and Linux ARM64). Drop the rustup step and that sentence together then.
+# From v0.28.3 Windows fetches the pinned toolchain too, so no job installs Rust with rustup.
 # Change these steps and the install block of site/docs/quickstart.md together.
 name: install-test
 
@@ -84,8 +83,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: windows-2022, rustup: x86_64-pc-windows-msvc }
-          - { os: windows-11-arm, rustup: aarch64-pc-windows-msvc }
+          - { os: windows-2022 }
+          - { os: windows-11-arm }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -94,21 +93,15 @@ jobs:
         shell: pwsh
         run: |
           foreach ($d in "$env:USERPROFILE\.cargo", "$env:USERPROFILE\.rustup") { if (Test-Path $d) { Rename-Item $d "$d-runner" } }
-      - name: Rust with rustup (as documented, until the next release)
-        shell: pwsh
-        run: |
-          Invoke-WebRequest "https://static.rust-lang.org/rustup/dist/${{ matrix.rustup }}/rustup-init.exe" -OutFile rustup-init.exe
-          .\rustup-init.exe -y --profile minimal
       - name: uv (as documented)
         shell: pwsh
         run: powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
       - name: Install and run (as documented)
         shell: bash
         run: |
-          export PATH="$(cygpath -u "$USERPROFILE")/.cargo/bin:$PATH"
           bash examples/agent-loop/install_check.sh "$(cygpath -u "$USERPROFILE")/.local/bin/uv.exe"
       - name: Agent loop
         shell: bash
         run: |
-          export PATH="$(cygpath -u "$USERPROFILE")/.cargo/bin:$(cygpath -u "$USERPROFILE")/.local/bin:$PATH"
+          export PATH="$(cygpath -u "$USERPROFILE")/.local/bin:$PATH"
           BREVI_PYTHON="$(uv python find 3.13)" bash examples/agent-loop/demo.sh

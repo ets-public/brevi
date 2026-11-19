@@ -9,7 +9,7 @@
 # archive, its SHA256SUMS and a source build all name the same release. When `gh` is installed and signed in,
 # the archive's build-provenance attestation is checked too (releases from v0.28.0 have one).
 # usage: sh install.sh            (BREVI_FROM_SOURCE=1 always builds that release from source;
-#                                  BREVI_VERSION=0.28.2 installs that release instead of the latest)
+#                                  BREVI_VERSION=0.28.3 installs that release instead of the latest)
 set -e
 # Stops with nothing installed: a download that cannot be verified is never unpacked.
 die() {

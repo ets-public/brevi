@@ -37,9 +37,9 @@ Notes:
 
 Newest first. Only changes that can affect programs or setups that already work.
 
-### Next release
+### v0.28.3
 
-These are on `main` now and ship with the next release.
+These changed in v0.28.3 (19 Nov 2026).
 
 - **Crate lines are checked.** A version must be a Cargo version requirement and features Cargo feature names, and under `--sandbox` every crate needs a version: add `use NAME "VERSION"` for a crate the rust code names without one.
 - **`brevi mcp --http` without a token answers only local Host names** (localhost, 127.0.0.1, [::1]). A tunnel that forwards to 127.0.0.1 with its own host name (cloudflared does by default) needs `--allow-host NAME`, or better a token. With a token, five wrong tokens in a row from one address get 429 for a growing wait (up to 60 s).
