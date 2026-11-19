@@ -1,0 +1,17 @@
+(1, 2) 3
+3 1
+code 7 7
+got code 7
+orig Named! changed
+('x', 2.5) x
+'' True
+0
+1
+2
+late ('bolt', 3) bolt 3
+late ('bolt', 4) bolt 4
+Two('y', 3.5) [Two('y', 3.5)]
+Pair(1, 5)
+Empty()
+Named!
+bad token AtLine('bad token') 0

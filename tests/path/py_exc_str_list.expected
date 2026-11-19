@@ -1,0 +1,3 @@
+{"path":"dynamic","why":"the typed build's Rust did not compile (the typed build gives an error's message only for str, int, float or bool args, not `Vec<i64>`)"}
+{"path":"dynamic","why":"the typed build's Rust did not compile (the typed build gives an error's message only for str, int, float or bool args, not `Vec<i64>`)"}
+{"path":"dynamic","why":"the typed build's Rust did not compile (the typed build gives an error's message only for str, int, float or bool args, not `Vec<i64>`)"}

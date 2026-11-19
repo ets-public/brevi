@@ -1091,7 +1091,7 @@ impl Cx<'_> {
                 match n.as_str() {
                     "lines" | "args" => List(Box::new(Str)),
                     "ax_json_null" => Json,
-                    "stdin" | "input" | "read" | "str" | "__err" | "__readline" | "__exc" | "__exc_obj" | "ax_jas_str" | "ax_jkey_str" | "ax_unsupported" | "__try_read" => Str,
+                    "stdin" | "input" | "read" | "str" | "__err" | "__readline" | "__exc" | "__exc_obj" | "ax_jas_str" | "ax_jkey_str" | "ax_unsupported" | "ax_exc_str" | "ax_exc_tuple" | "ax_exc_args" | "__try_read" => Str,
                     "__truediv" if args.iter().any(|(_, a)| self.ty(a, env) == Dec) => Dec,
                     "__truediv" => F64,
                     "csv" => List(Box::new(List(Box::new(Str)))),

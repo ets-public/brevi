@@ -1,0 +1,3 @@
+{"path":"dynamic","line":2,"why":"str() of an object of the error class Odd: the typed build cannot tell what CPython's message is, because its super().__init__(...) is not one plain statement of __init__"}
+{"path":"dynamic","line":2,"why":"str() of an object of the error class Odd: the typed build cannot tell what CPython's message is, because its super().__init__(...) is not one plain statement of __init__"}
+{"path":"dynamic","line":2,"why":"str() of an object of the error class Odd: the typed build cannot tell what CPython's message is, because its super().__init__(...) is not one plain statement of __init__"}

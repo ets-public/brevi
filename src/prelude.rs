@@ -6416,6 +6416,26 @@ pub fn ax_jint(o: Json) -> i64 {
         o => panic!("cannot add {} to an int here", ax_json_py(&o, false)),
     }
 }
+// str() of an error object of the program (parser.rs exc_str): its args' text, made when the args are set,
+// so only values that cannot change afterwards are taken.
+#[diagnostic::on_unimplemented(message = "the typed build gives an error's message only for str, int, float or bool args, not `{Self}`")]
+pub trait AxExcArg: Show + 'static {}
+impl AxExcArg for String {}
+impl AxExcArg for i64 {}
+impl AxExcArg for f64 {}
+impl AxExcArg for bool {}
+pub fn ax_exc_str<T: AxExcArg>(x: &T) -> String {
+    x.show()
+}
+pub fn ax_exc_repr<T: AxExcArg>(x: &T) -> String {
+    AxPyRepr::ax_py_repr(x)
+}
+pub fn ax_exc_tuple(xs: &[String]) -> String {
+    format!("({})", xs.join(", "))
+}
+pub fn ax_exc_args(xs: &[String]) -> String {
+    xs.join(", ")
+}
 // A Python form Brevi cannot give the same answer for: stop the run instead of printing something else.
 pub fn ax_unsupported(what: String) -> String {
     panic!("{what}")

@@ -3154,6 +3154,14 @@ impl Emitter {
             };
             return format!("{f}(&{}) /*axsh:{hex}*/", self.place(&args[0].1));
         }
+        // An error object's message (parser.rs exc_str): made from args whose value cannot change later.
+        if name == "ax_exc_str" && args.len() == 1 {
+            return format!("ax_exc_str(&{})", self.expr(&args[0].1));
+        }
+        if name == "ax_exc_tuple" || name == "ax_exc_args" {
+            let xs: Vec<String> = args.iter().map(|(_, a)| format!("ax_exc_repr(&{})", self.expr(a))).collect();
+            return format!("{name}(&[{}])", xs.join(", "));
+        }
         // `str({"id": i, "error": m})` writes the keys in the order given, as Python does.
         if name == "str" && args.len() == 1 {
             if let Expr::Map(pairs) = &args[0].1 {

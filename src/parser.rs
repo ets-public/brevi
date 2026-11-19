@@ -44,7 +44,14 @@ pub struct Parser {
     // Parsing the body of a Python error class (`super().__init__(msg)` there does nothing).
     in_exc_class: bool,
     // What an error class passes up as its message: `super().__init__(msg)` gives Some(Some("msg")).
-    exc_init_arg: Option<Option<String>>,
+    // Error classes of the program: with their own or an inherited __str__, with an __init__ (own or inherited),
+    // and with a __str__ that gives Python's message (see exc_str).
+    exc_str_own: Vec<String>,
+    exc_init: Vec<String>,
+    exc_str_ok: Vec<String>,
+    exc_repr_own: Vec<String>,
+    // An error class whose message is the args of its calls: how many each call gives.
+    exc_nargs: HashMap<String, usize>,
 }
 
 type Sig = (Vec<String>, Vec<Option<Expr>>, Option<usize>);
@@ -80,7 +87,7 @@ fn parse_once(src: &str) -> R<Vec<Item>> {
         (Tok::Kw("fn"), Tok::Ident(n)) => Some(n.clone()),
         _ => None,
     }).collect();
-    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: HashMap::new(), in_handler: 0, exc_rich: vec![], threads: vec![], in_exc_class: false, exc_init_arg: None };
+    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: HashMap::new(), in_handler: 0, exc_rich: vec![], threads: vec![], in_exc_class: false, exc_str_own: vec![], exc_init: vec![], exc_str_ok: vec![], exc_repr_own: vec![], exc_nargs: HashMap::new() };
     p.py = crate::python_style(src);
     // Python error classes, from every file, before any `except` that names one is read (the main file comes first).
     if p.py {
@@ -780,6 +787,259 @@ impl Parser {
         false
     }
 
+    // Python's str() of an error object without its own `__str__` is made of its args: "" for none, str(a) for
+    // one, the tuple's repr for more. The args are what `super().__init__(...)` (or `Exception.__init__(self,
+    // ...)`) was given, or, with no such call, the positional args the class was called with. The class gets a
+    // hidden `ax_exc_msg` field holding that text, set where the args are set, and a `__str__` giving it (and `ax_exc_args`, the args' reprs, for `__repr__`). The
+    // text is made at that point, so only args whose value cannot change later qualify: str, int, float and
+    // bool (ax_exc_str's trait bound; another type fails the typed build, which then goes dynamic). Args the
+    // build cannot see (a keyword or `*xs` call, `*args` in __init__, calls giving a defaulted __init__ different numbers of args, an `__init__` of the program's own base, a call
+    // inside an if) make the class refused here, so the file goes to the dynamic build, when anything could
+    // take an error object's str() (an `except ... as`, or the class called outside `raise`).
+    fn exc_str(&mut self, name: &str, line: usize, bases: &[String], methods: &mut Vec<Item>) -> R<()> {
+        let has = |ms: &[Item], m: &str| ms.iter().any(|it| matches!(it, Item::Fn { name: n, .. } if n == m));
+        let own_init = has(methods, "__init__");
+        let base_init = bases.iter().any(|b| self.exc_init.contains(b));
+        let inherited_str = bases.iter().any(|b| self.exc_str_own.contains(b));
+        if own_init || base_init {
+            self.exc_init.push(name.to_string());
+        }
+        let plan: Result<Option<(usize, Vec<Expr>)>, String> = if has(methods, "__str__") || inherited_str {
+            self.exc_str_own.push(name.to_string());
+            Ok(None)
+        } else if !own_init {
+            // `class NotFound(AppError): pass`-like: AppError's __init__ and __str__ serve, if they give the
+            // message and the class is called as AppError's message needs (positional args only, as many as
+            // AppError's calls give when its message is made of them).
+            let calls = self.exc_call_counts(name);
+            match bases {
+                [b] if self.exc_str_ok.contains(b) && calls.as_ref().is_some_and(|c| self.exc_nargs.get(b).map_or(true, |k| c.iter().all(|n| n == k))) => {
+                    if let Some(k) = self.exc_nargs.get(b).copied() {
+                        self.exc_nargs.insert(name.to_string(), k);
+                    }
+                    Ok(None)
+                }
+                _ => Err("it has no __init__ the typed build can read its message from".to_string()),
+            }
+        } else {
+            let mut calls = 0;
+            for m in methods.iter() {
+                if let Item::Fn { body, .. } = m {
+                    let mut b = body.clone();
+                    walk_mut(&mut b, &mut |e| {
+                        if matches!(e, Expr::Call(f, _, _) if f == "__exc_init") {
+                            calls += 1;
+                        }
+                    });
+                }
+            }
+            let (params, body) = methods.iter().find_map(|m| match m {
+                Item::Fn { name: n, params, body, .. } if n == "__init__" => Some((params.clone(), body.clone())),
+                _ => None,
+            }).unwrap();
+            let top: Vec<(usize, &Vec<(Option<String>, Expr)>)> = match &body {
+                Expr::Block(st, _) => st.iter().enumerate().filter_map(|(i, s)| match s {
+                    Stmt::Expr { expr: Expr::Call(f, a, _), .. } if f == "__exc_init" => Some((i, a)),
+                    _ => None,
+                }).collect(),
+                _ => vec![],
+            };
+            if calls == 0 {
+                // Python's args are the call's positional args: with defaults, as many as each call gives, so
+                // every call must give the same number.
+                let nparams = params.len() - 1;
+                let counts = self.exc_call_counts(name);
+                let one = counts.as_ref().and_then(|c| c.first().copied().filter(|k| c.iter().all(|n| n == k)));
+                if self.sigs.get("__init__").is_some_and(|s| s.2.is_some()) {
+                    Err("its __init__ takes *args, so its message depends on each call".to_string())
+                } else if counts.is_none() {
+                    Err("it is called with keyword or * args, which Python leaves out of its message".to_string())
+                } else {
+                    // Not called anywhere (or only by a subclass): the message would be all its params.
+                    let k = if counts.as_ref().is_some_and(|c| c.is_empty()) { Some(nparams) } else { one.filter(|k| *k <= nparams) };
+                    match k {
+                        None => Err("its calls give different numbers of args, and Python's message is the args each call gives".to_string()),
+                        Some(k) => {
+                            self.exc_nargs.insert(name.to_string(), k);
+                            Ok(Some((0, params.iter().skip(1).take(k).map(|p| Expr::Ident(p.name.clone())).collect())))
+                        }
+                    }
+                }
+            } else if calls > 1 || top.len() != 1 {
+                Err("its super().__init__(...) is not one plain statement of __init__".to_string())
+            } else {
+                let (i, a) = top[0];
+                let target = match a.first() {
+                    Some((None, Expr::Str(p))) => p.iter().map(|x| if let StrPart::Lit(t) = x { t.clone() } else { String::new() }).collect::<String>(),
+                    _ => String::new(),
+                };
+                if (target == "super" && base_init) || self.exc_init.contains(&target) {
+                    Err("its super().__init__(...) runs an __init__ of the program's own error class".to_string())
+                } else if a[1..].iter().any(|(k, _)| k.is_some()) {
+                    Err("its super().__init__(...) is given keyword or * args".to_string())
+                } else {
+                    Ok(Some((i, a[1..].iter().map(|(_, x)| x.clone()).collect())))
+                }
+            }
+        };
+        let may_str = self.exc_str_may_run();
+        let field = |f: &str| Expr::Field(Box::new(Expr::Ident("self_".into())), f.into());
+        // Python's repr() of an error object: `NotFound('k')`, its class's name and its args' reprs.
+        let own_repr = has(methods, "__repr__") || bases.iter().any(|b| self.exc_repr_own.contains(b));
+        if own_repr {
+            self.exc_repr_own.push(name.to_string());
+        }
+        let mut repr = (!own_repr).then(|| Expr::Str(vec![StrPart::Lit(format!("{name}(")), StrPart::Interp(field("ax_exc_args")), StrPart::Lit(")".into())]));
+        let value = match plan {
+            Ok(None) => {
+                // A class with its own (or inherited own) __str__ keeps what repr() gave before; one inheriting
+                // the message from its base gets its own name in repr().
+                if self.exc_str_own.contains(&name.to_string()) {
+                    repr = None;
+                }
+                self.exc_str_ok.push(name.to_string());
+                None
+            }
+            Ok(Some((at, args))) => {
+                // Each arg is worked out once, as Python does, into a local both texts are made from.
+                let n = args.len();
+                let mut set: Vec<Stmt> = args.into_iter().enumerate().map(|(i, a)| Stmt::Let { name: Pat::Bind(format!("ax_exc_a{i}")), ty: None, value: a, mutable: false, line }).collect();
+                let locals = || (0..n).map(|i| (None, Expr::Ident(format!("ax_exc_a{i}")))).collect::<Vec<_>>();
+                let msg = match n {
+                    0 => Expr::Str(vec![]),
+                    1 => Expr::Call("ax_exc_str".into(), locals(), line),
+                    _ => Expr::Call("ax_exc_tuple".into(), locals(), line),
+                };
+                let reprs = if n == 0 { Expr::Str(vec![]) } else { Expr::Call("ax_exc_args".into(), locals(), line) };
+                set.push(Stmt::Assign { target: field("ax_exc_msg"), op: "=", value: msg, line });
+                set.push(Stmt::Assign { target: field("ax_exc_args"), op: "=", value: reprs, line });
+                for m in methods.iter_mut() {
+                    if let Item::Fn { name: n, body: Expr::Block(st, _), .. } = m {
+                        if n == "__init__" {
+                            if matches!(st.get(at), Some(Stmt::Expr { expr: Expr::Call(f, _, _), .. }) if f == "__exc_init") {
+                                st.remove(at);
+                            }
+                            for (k, x) in set.iter().enumerate() {
+                                st.insert(at + k, x.clone());
+                            }
+                        }
+                    }
+                }
+                self.exc_str_ok.push(name.to_string());
+                Some(field("ax_exc_msg"))
+            }
+            Err(why) if may_str && self.py => {
+                return Err(Diag::new("parse", line, 1, &format!("str() of an object of the error class {name}: the typed build cannot tell what CPython's message is, because {why}")));
+            }
+            // Nothing in the file can take the message: a str() or repr() that cannot happen stops the run if it does.
+            Err(_) => {
+                let stop = Expr::Call("ax_unsupported".into(), vec![(None, Expr::Str(vec![StrPart::Lit(format!("str() of a {name} error is not supported yet"))]))], line);
+                repr = repr.map(|_| stop.clone());
+                Some(stop)
+            }
+        };
+        // The calls left (a class with its own __str__) set nothing the typed build reads.
+        for m in methods.iter_mut() {
+            if let Item::Fn { body, .. } = m {
+                walk_mut(body, &mut |e| {
+                    if matches!(e, Expr::Call(f, _, _) if f == "__exc_init") {
+                        *e = Expr::Tuple(vec![]);
+                    }
+                });
+            }
+        }
+        for (m, v) in [("__str__", value), ("__repr__", repr)] {
+            let Some(v) = v else { continue };
+            methods.push(Item::Fn {
+                name: m.into(),
+                params: vec![Param { name: "self_".into(), ty: Ty::Named("?".into()), is_mut: false }],
+                ret: Ty::Named("?".into()),
+                fallible: false,
+                body: Expr::Block(vec![Stmt::Return { value: Some(v), line }], None),
+                line,
+                script: false,
+            });
+        }
+        Ok(())
+    }
+    // How many positional args each call of the class gives (`E(a, b)`: 2, a bare `raise E`: 0), or None if a
+    // call gives keyword or * args (`E(a, code=b)`, `E(*xs)`), which Python leaves out of the error's args.
+    fn exc_call_counts(&self, name: &str) -> Option<Vec<usize>> {
+        let t: Vec<&Tok> = self.toks.iter().map(|t| &t.tok).collect();
+        let mut counts = Vec::new();
+        for i in 0..t.len() {
+            if !matches!(t[i], Tok::Ident(n) if n == name) {
+                continue;
+            }
+            let after_raise = i > 0 && matches!(t[i - 1], Tok::Ident(w) if w == "raise");
+            if !matches!(t.get(i + 1), Some(Tok::Sym("("))) {
+                if after_raise {
+                    counts.push(0);
+                }
+                continue;
+            }
+            if i > 0 && matches!(t[i - 1], Tok::Ident(w) if w == "class") {
+                continue;
+            }
+            let (mut depth, mut commas, mut empty, mut last_comma) = (0, 0, true, false);
+            for j in i + 1..t.len() {
+                match t[j] {
+                    Tok::Sym("(") | Tok::Sym("[") | Tok::Sym("{") => {
+                        if depth >= 1 {
+                            empty = false;
+                            last_comma = false;
+                        }
+                        depth += 1;
+                    }
+                    Tok::Sym(")") | Tok::Sym("]") | Tok::Sym("}") => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    Tok::Sym("*") | Tok::Sym("**") if depth == 1 && matches!(t[j - 1], Tok::Sym("(") | Tok::Sym(",")) => return None,
+                    Tok::Ident(_) if depth == 1 && matches!(t.get(j + 1), Some(Tok::Sym("="))) => return None,
+                    Tok::Sym(",") if depth == 1 => {
+                        commas += 1;
+                        last_comma = true;
+                    }
+                    Tok::Eof => break,
+                    Tok::Newline => {}
+                    _ => {
+                        empty = false;
+                        last_comma = false;
+                    }
+                }
+            }
+            counts.push(if empty { 0 } else { commas + 1 - usize::from(last_comma) });
+        }
+        Some(counts)
+    }
+    // Whether anything in the file could take an error object's str(): an `except ... as e`, or an error class
+    // of the program called other than right after `raise`.
+    fn exc_str_may_run(&self) -> bool {
+        let t: Vec<&Tok> = self.toks.iter().map(|t| &t.tok).collect();
+        for i in 0..t.len() {
+            if matches!(t[i], Tok::Ident(w) if w == "except") {
+                for x in &t[i + 1..] {
+                    match x {
+                        Tok::Ident(w) if w == "as" || w == "as_" => return true,
+                        Tok::Kw("as") => return true,
+                        Tok::Sym(":") | Tok::Newline | Tok::Eof => break,
+                        _ => {}
+                    }
+                }
+            }
+            if matches!(t[i], Tok::Ident(n) if self.exc_rich.contains(n)) && matches!(t.get(i + 1), Some(Tok::Sym("("))) {
+                let before = if i > 0 { Some(t[i - 1]) } else { None };
+                if !matches!(before, Some(Tok::Ident(w)) if w == "raise" || w == "class") {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     fn class(&mut self) -> R<(Item, Vec<Item>, Vec<String>)> {
         let line = self.line();
         self.next();
@@ -800,7 +1060,6 @@ impl Parser {
         let kids = self.children.len();
         let saved_attrs = std::mem::take(&mut self.attr_tys);
         self.in_exc_class = self.exc_rich.contains(&name);
-        self.exc_init_arg = None;
         crate::pybridge::enter_class(&name);
         let body = self.block();
         crate::pybridge::leave_class();
@@ -808,46 +1067,9 @@ impl Parser {
         let body = body?;
         let attr_tys = std::mem::replace(&mut self.attr_tys, saved_attrs);
         let mut methods: Vec<Item> = self.children.split_off(kids);
-        // Python: `str(e)` of an error object is the message it was made with. Without its own `__str__`, an error
-        // class gets one giving the field that holds that message, or one that stops the run if there is none.
-        if self.exc_rich.contains(&name) && !methods.iter().any(|m| matches!(m, Item::Fn { name: n, .. } if n == "__str__" || n == "__repr__")) {
-            let init = methods.iter().find_map(|m| match m {
-                Item::Fn { name: n, params, body, .. } if n == "__init__" => Some((params.clone(), body.clone())),
-                _ => None,
-            });
-            let msg_param = match (&self.exc_init_arg, &init) {
-                (Some(arg), _) => arg.clone(),
-                (None, Some((ps, _))) if ps.len() == 2 => Some(ps[1].name.clone()),
-                _ => None,
-            };
-            let mut field = None;
-            if let (Some(p), Some((_, b))) = (&msg_param, &init) {
-                let mut b = b.clone();
-                walk_mut(&mut b, &mut |e| {
-                    if let Expr::Block(ss, _) = e {
-                        for st in ss {
-                            if let Stmt::Assign { target: Expr::Field(r, f), op: "=", value: Expr::Ident(x), .. } = st {
-                                if *x == *p && matches!(r.as_ref(), Expr::Ident(s) if s == "self_") && field.is_none() {
-                                    field = Some(f.clone());
-                                }
-                            }
-                        }
-                    }
-                });
-            }
-            let value = match field {
-                Some(f) => Expr::Call("str".into(), vec![(None, Expr::Field(Box::new(Expr::Ident("self_".into())), f))], line),
-                None => Expr::Call("ax_unsupported".into(), vec![(None, Expr::Str(vec![StrPart::Lit(format!("str() of a {name} error is not supported yet"))]))], line),
-            };
-            methods.push(Item::Fn {
-                name: "__str__".into(),
-                params: vec![Param { name: "self_".into(), ty: Ty::Named("?".into()), is_mut: false }],
-                ret: Ty::Named("?".into()),
-                fallible: false,
-                body: Expr::Block(vec![Stmt::Return { value: Some(value), line }], None),
-                line,
-                script: false,
-            });
+        // Python: `str(e)` of an error object is made of the args it was made with (see exc_str).
+        if self.exc_rich.contains(&name) {
+            self.exc_str(&name, line, &bases, &mut methods)?;
         }
         // Fields written in the class body, as a dataclass has them: `x: int`, `tags: list[str] = field(default_factory=list)`.
         let mut declared: Vec<Field> = Vec::new();
@@ -2132,12 +2354,24 @@ impl Parser {
                                     || (name == "stack_size" && on("threading"))
                                     || (name == "__init__" && matches!(&e, Expr::Ident(x) if x.ends_with("Exception") || x.ends_with("Error") || self.exc_bases.contains_key(x)))
                                     || (name == "__init__" && self.in_exc_class && matches!(&e, Expr::Call(f, _, _) if f == "super" || f == "super_"));
+                                // In an error class, `super().__init__(a, b)` sets the args str(e) is made of: kept as
+                                // `__exc_init("super" or the class named, a, b)` for class() to place (see exc_str).
                                 if nothing && name == "__init__" && self.in_exc_class {
-                                    let given: Vec<&Expr> = raw.iter().map(|a| &a.1).filter(|a| !matches!(a, Expr::Ident(x) if x == "self_")).collect();
-                                    self.exc_init_arg = Some(match given.as_slice() {
-                                        [Expr::Ident(x)] => Some(x.clone()),
-                                        _ => None,
-                                    });
+                                    let target = match &e {
+                                        Expr::Ident(x) => x.clone(),
+                                        _ => "super".into(),
+                                    };
+                                    let mut given: Vec<(Option<String>, Expr)> = vec![(None, Expr::Str(vec![StrPart::Lit(target)]))];
+                                    let mut skip_self = matches!(&e, Expr::Ident(_));
+                                    for a in raw.iter() {
+                                        if skip_self && a.0.is_none() && matches!(&a.1, Expr::Ident(x) if x == "self_") {
+                                            skip_self = false;
+                                            continue;
+                                        }
+                                        given.push(a.clone());
+                                    }
+                                    e = Expr::Call("__exc_init".into(), given, line);
+                                    continue;
                                 }
                                 if nothing {
                                     e = Expr::Tuple(vec![]);
@@ -3355,7 +3589,7 @@ impl Parser {
                         d.line = line;
                         d
                     })?;
-                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: self.py, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: self.exc_bases.clone(), in_handler: 0, exc_rich: self.exc_rich.clone(), threads: self.threads.clone(), in_exc_class: false, exc_init_arg: None };
+                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: self.py, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: self.exc_bases.clone(), in_handler: 0, exc_rich: self.exc_rich.clone(), threads: self.threads.clone(), in_exc_class: false, exc_str_own: self.exc_str_own.clone(), exc_init: self.exc_init.clone(), exc_str_ok: self.exc_str_ok.clone(), exc_repr_own: self.exc_repr_own.clone(), exc_nargs: self.exc_nargs.clone() };
                     let e = sub.expr().map_err(|mut d| {
                         d.line = line;
                         d
