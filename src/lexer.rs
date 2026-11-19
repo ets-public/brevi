@@ -936,6 +936,10 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                     is_float = true;
                 }
             }
+            // Python's imaginary literals (`2j`, `1.5J`): the typed build has no complex type, the dynamic path does.
+            if py && !after_dot && matches!(chars.get(i), Some('j' | 'J')) && !chars.get(i + 1).is_some_and(|c| c.is_alphanumeric() || *c == '_') {
+                return Err(Diag::new("lex", tl, tc, "a complex literal (2j) is not supported in the typed build"));
+            }
             let text: String = chars[start..i].iter().filter(|&&d| d != '_').collect();
             col += i - start;
             if is_float {
@@ -955,6 +959,15 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             }
             let word: String = chars[start..i].iter().collect();
             col += i - start;
+            // A Python string prefix the typed build cannot read as written (`b"..."` and `rb"..."` are bytes, `u`, `F`,
+            // `rf`, ... are spelled differently): refuse it, so the program builds through the dynamic path, which reads
+            // every prefix. Lexing `rb"..."` as a str printed the wrong value.
+            if py && word != "f" && !matches!(word.as_str(), "r" | "R") && matches!(chars.get(i), Some('"') | Some('\''))
+                && word.len() <= 2 && word.chars().all(|c| matches!(c, 'b' | 'B' | 'r' | 'R' | 'u' | 'U' | 'f' | 'F'))
+            {
+                let what = if word.contains(['b', 'B']) { "a bytes literal" } else { "the string prefix" };
+                return Err(Diag::new("lex", tl, tc, &format!("{what} {word}\"...\" is not supported in the typed build")));
+            }
             // Python's f"..." is a plain string: Brevi strings already fill in `{name}`.
             if word == "f" && matches!(chars.get(i), Some('"') | Some('\'')) {
                 fstr = true;

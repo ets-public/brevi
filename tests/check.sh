@@ -112,6 +112,27 @@ if [ "$1" != "--update" ]; then
   done
   rm -rf "$it_dir"
 fi
+# A Python literal the typed lexer cannot read as written (bytes b"..." and rb"...", a u/F/rf string prefix, an
+# imaginary 2j) is refused by the typed build with its own reason and built over dynamic values: rb"..." once
+# built typed as a str and printed a\x00 for b'a\\x00'.
+if [ "$1" != "--update" ]; then
+  lt_dir=$(mktemp -d)
+  printf 'print(rb"a\\x00", br"b")\n' > "$lt_dir/a.py"
+  printf 'print(b"123\\x00", len(b"\\0"))\n' > "$lt_dir/b.py"
+  printf 'x = 3\nprint(u"u", F"{x}", rf"{x}\\n")\n' > "$lt_dir/c.py"
+  printf 'print(2j, 1.5J + 1, 1e3j)\n' > "$lt_dir/d.py"
+  for p in "a:a bytes literal rb" "b:a bytes literal b" "c:the string prefix u" "d:a complex literal (2j)"; do
+    n=${p%%:*}; why=${p#*:}
+    err=$(BREVI_PATH=1 $BREVI build "$lt_dir/$n.py" -o "$lt_dir/prog" --no-cache 2>&1 >/dev/null)
+    out=$("$lt_dir/prog" 2>&1)
+    if printf '%s\n' "$err" | grep -q '^{"path":"dynamic".*'"$why" && [ "$out" = "$("${BREVI_PYTHON:-python3}" "$lt_dir/$n.py" 2>&1)" ]; then
+      echo "ok   typed build refuses $why, the dynamic build prints what python3 prints"
+    else
+      echo "FAIL typed build refuses $why, the dynamic build prints what python3 prints"; printf '%s\n' "$err" "$out" | tail -3; fail=1
+    fi
+  done
+  rm -rf "$lt_dir"
+fi
 # Flags the dynamic build cannot hold are refused when it builds, never answered wrong: an operator between members
 # of two IntFlag classes (enum.py keeps the other class's member in the result), and a Flag whose __new__ shifts its
 # values past what Brevi's flags hold.
