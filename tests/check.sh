@@ -312,7 +312,8 @@ for f in tests/numpy/*.py; do
     continue
   fi
   out=$(BREVI_PATH=1 timeout 600 $BREVI run "$f" --native 2>/tmp/brevi_np_err)
-  if ! grep -q '"path":"dynamic"' /tmp/brevi_np_err; then
+  # A dynamic build that calls numpy through the bridge ("py":["numpy"]) runs CPython's numpy, not Brevi's.
+  if ! grep -q '"path":"dynamic"' /tmp/brevi_np_err || grep '"path":"dynamic"' /tmp/brevi_np_err | grep -q '"py":\[[^]]*"numpy'; then
     echo "FAIL $f (not built with Brevi's numpy)"; cat /tmp/brevi_np_err; fail=1
   elif [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; grep -v '"path"' /tmp/brevi_np_err | tail -5; fail=1

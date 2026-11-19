@@ -17,7 +17,8 @@ G=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import tokcount; pr
 # once shipped the live site with every GitHub link removed.
 python3 $S/gen.py $O $S/out-run "$V" "$G" 1 "$FV"
 # Logo and favicons (favicon.svg is the source; node site/icons/make.js redraws the PNG and ICO sizes).
-for d in $O $S/out-run; do cp $S/icons/*.{svg,ico,png,webmanifest} $d/; done
+# (No brace expansion: the script must also work as `sh site/build.sh`, where sh is dash.)
+for d in $O $S/out-run; do cp $S/icons/*.svg $S/icons/*.ico $S/icons/*.png $S/icons/*.webmanifest $d/; done
 # Fonts are served from the site itself (IBM Plex, latin subset; the licence goes with them).
 for d in $O $S/out-run; do cp $S/fonts/*.woff2 $S/fonts/OFL.txt $d/; done
 cp $S/llms.txt $O/llms.txt

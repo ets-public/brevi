@@ -1,0 +1,2 @@
+- The usage guide now states one rule for `brevi`'s own exit status: 2 when the command line is wrong and nothing was tried, 1 when Brevi tried and stopped (unreadable file, refused or failed build, a verify verdict other than `identical`), otherwise the program's own status or 124 for a limit.
+- `sh site/build.sh` works where sh is dash; tools/release_notes.py closes the files it reads; tests/check.sh fails a numpy test whose dynamic build calls CPython's numpy through the bridge.
