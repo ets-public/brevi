@@ -2,22 +2,22 @@
 
 # Brevi
 
-**Turn your Python MCP server or CLI into one fast binary.** Brevi compiles the Python you already have, imports included, through Rust into one native file. The machine that runs it needs no Python, no virtualenv and no packages, and the source stays as it is.
+**Turn your Python MCP server or CLI into one fast binary.** Brevi compiles the Python you already have, imports included, through Rust into one native file. When the whole program builds natively, the machine that runs it needs no Python, no virtualenv and no packages, and the source stays as it is.
 
 ```
 $ brevi build server.py --release -o time-mcp     # build once
 $ claude mcp add time -- /full/path/to/time-mcp   # register it
 ```
 
-The official `mcp-server-time` 2026.11.4, built unchanged this way, answered its first tool call in 35 ms where CPython 3.13 took 730 ms, from one 19.2 MB file that links no libpython. A token counter built on tiktoken counted one file in 33 ms against CPython's 375 ms, from an 11.5 MB file (Brevi 0.26.0, Linux x86-64, Intel Xeon at 2.10 GHz with 4 cores, median of 10 runs; [Showcases](https://brevi-lang.org/docs/showcases)). The win is start-up and import time, not throughput: the dynamic build most servers take runs at about CPython's speed once started (median 0.85x on our compute benchmarks).
+The official `mcp-server-time` 2026.11.4, built unchanged this way, answered its first tool call in 35 ms where CPython 3.13 took 730 ms, from one 19.2 MB native file that needs no Python. A token counter built on tiktoken counted one file in 33 ms against CPython's 375 ms, from an 11.5 MB file (Brevi 0.26.0, Linux x86-64, Intel Xeon at 2.10 GHz with 4 cores, median of 10 runs; [Showcases](https://brevi-lang.org/docs/showcases)). The win is start-up and import time, not throughput: the dynamic build most servers take runs at about CPython's speed once started (median 0.85x on our compute benchmarks).
 
-**Most real servers do not get that today.** Those figures are for the versions measured. The current `mcp-server-time` (2026.11.18) does not build natively yet, and in our first real-server test (19 November 2026) none of the 10 most downloaded MCP servers on PyPI built natively: they fall back to the CPython bridge, which needs Python's shared library on the run machine and loses the fast start. Making real servers build natively is the first item on the [roadmap](https://brevi-lang.org/docs/roadmap).
+**Most real servers do not get that today.** Those figures are for the versions measured. The current `mcp-server-time` (2026.11.18) does not build natively yet, and in our first real-server test (19 November 2026) none of the 10 most downloaded MCP servers on PyPI built natively: they fall back to the CPython bridge, which needs Python and the packages they were built against on the run machine, and loses the fast start. Making real servers build natively is the first item on the [roadmap](https://brevi-lang.org/docs/roadmap).
 
 Docs: **[Ship an MCP server or CLI](https://brevi-lang.org/docs/bundle-mcp)** · [brevi-lang.org/docs](https://brevi-lang.org/docs/) · Releases: [GitHub](https://github.com/ets-public/brevi/releases/latest) · Changes: [CHANGELOG.md](CHANGELOG.md)
 
 ## Before you ship
 
-- **Imports Brevi does not build itself** (pandas, yaml, ...) run in CPython inside the binary. That build needs Python's shared library on the run machine, or `--standalone` (Linux and Windows) to carry it, and loses the fast start. The build says so in one line.
+- **Imports Brevi does not build itself** (pandas, yaml, ...) run in CPython inside the binary. That build needs Python and the packages it was built against (the build environment's site-packages) on the run machine, and loses the fast start. `--standalone` (Linux and Windows) packs them into the binary, but breaks servers that import packages lazily (4 of the 10 in our real-server test). The build says so in one line.
 - **Linux binaries link glibc**: build on the oldest Linux you target. No static build yet.
 - **macOS**: released, but programs built there are not yet tested in CI. **Windows** is a beta.
 - **Long-running servers**: a built program does not yet free some memory, such as reference cycles; watch the memory of a server that runs for days.
@@ -60,12 +60,11 @@ npm install -g brevi       # or: npx brevi mcp
 
 ```
 $ brevi build server.py --release -o words-mcp   # one native file; stderr says which path it took
-$ ldd words-mcp | grep -c libpython              # 0: no libpython linked (Linux)
 $ brevi verify server.py --release --input session.jsonl   # native build and CPython on the same MCP session: a certificate if they agree
 $ claude mcp add words -- /full/path/to/words-mcp
 ```
 
-When the whole server builds natively, the build prints nothing, or one `{"path":"dynamic",...}` line (still native, nothing to install). `{"path":"pybridge","py":[...]}` means the listed imports run in CPython inside the binary, so the run machine needs Python 3.13's shared library (or build with `--standalone`). `{"line":N,"msg":...}` and no binary means Brevi cannot build that line yet. The whole walk-through, with a sample server and the session file: [Ship an MCP server or CLI as one binary](https://brevi-lang.org/docs/bundle-mcp). A command-line tool builds the same way: `brevi build tool.py --release -o tool`.
+When the whole server builds natively, the build prints nothing, or one `{"path":"dynamic",...}` line (still native, nothing to install). `{"path":"pybridge","py":[...]}` means the listed imports run in CPython inside the binary, so the run machine needs Python 3.13 and the packages the build used. Read the build's stderr to know which you have: `ldd` shows no libpython for a bridged binary either, so it is not proof that no Python is needed. `{"line":N,"msg":...}` and no binary means Brevi cannot build that line yet. The whole walk-through, with a sample server and the session file: [Ship an MCP server or CLI as one binary](https://brevi-lang.org/docs/bundle-mcp). A command-line tool builds the same way: `brevi build tool.py --release -o tool`.
 
 Other commands, for scripts and while you work on the source:
 
