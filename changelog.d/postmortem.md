@@ -1,0 +1,1 @@
+- Brevi is archived. POSTMORTEM.md explains what was built, what worked, the 0 of 10 real-server result, and why development stopped; the README links it at the top.
