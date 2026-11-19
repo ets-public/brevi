@@ -14,7 +14,11 @@
 //   BREVI_MCP_TOKEN), checked on every request (401 without it).
 // - A request with an Origin header is refused (403) unless the origin is local (http://localhost,
 //   http://127.0.0.1, http://[::1], any port) or allowed with --allow-origin, so a web page cannot use a
-//   local server (DNS rebinding).
+//   local server (DNS rebinding). A server without a token (so on 127.0.0.1 only) also refuses a Host header
+//   that is not local, unless --allow-host names it, so a page that rebinds its own name to 127.0.0.1 cannot
+//   reach it even from a client that sends no Origin.
+// - After FREE_TRIES wrong tokens in a row from one address (an IPv6 /64 counts as one), that address gets 429
+//   without its token being looked at, for 1 s, then 2, 4, ... up to MAX_WAIT; a right token clears the count.
 // - Bodies are limited to 4 MiB (413), and a body is stored only as its bytes arrive, so a request that
 //   claims a large body costs memory only for what it actually sends.
 // - The request line, headers and body are read before the token is checked, so that reading is bounded for
@@ -34,10 +38,17 @@ const MAX_BODY: usize = 4 * 1024 * 1024;
 const MAX_CONNS: usize = 64;
 const IDLE: Duration = Duration::from_secs(30);
 const REQUEST: Duration = Duration::from_secs(120);
+const FREE_TRIES: u32 = 5;
+const MAX_WAIT: u64 = 60;
+// addresses whose wrong tokens are remembered; past this, old ones are forgotten and the rest share one count
+const MAX_ADDRS: usize = 4096;
+const FORGET: Duration = Duration::from_secs(600);
 
 struct Front {
     token: Option<String>,
     origins: Vec<String>,
+    hosts: Vec<String>,
+    fails: Fails,
     path: String,
     child: Mutex<ChildStdin>,
     // renamed id -> (where the reply goes, the client's own id)
@@ -45,13 +56,14 @@ struct Front {
     next: AtomicU64,
 }
 
-const USAGE: &str = "usage: brevi mcp --http [HOST:]PORT [--token TOKEN] [--path /mcp] [--allow-origin ORIGIN]... [--timeout SECONDS] [--mem-mb MB] [--allow CAPS] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--trust-calls]";
+const USAGE: &str = "usage: brevi mcp --http [HOST:]PORT [--token TOKEN] [--path /mcp] [--allow-origin ORIGIN]... [--allow-host HOST]... [--timeout SECONDS] [--mem-mb MB] [--allow CAPS] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--trust-calls]";
 
 pub fn serve(argv: &[String]) -> ! {
     let mut addr = None;
     let mut token = std::env::var("BREVI_MCP_TOKEN").ok().filter(|t| !t.is_empty());
     let mut path = "/mcp".to_string();
     let mut origins = vec![];
+    let mut hosts = vec![];
     let mut rest = vec![];
     let mut i = 0;
     while i < argv.len() {
@@ -61,6 +73,7 @@ pub fn serve(argv: &[String]) -> ! {
             ("--token", Some(t)) => token = Some(t),
             ("--path", Some(p)) if p.starts_with('/') => path = p,
             ("--allow-origin", Some(o)) => origins.push(o.trim_end_matches('/').to_string()),
+            ("--allow-host", Some(h)) => hosts.push(h.to_ascii_lowercase()),
             ("--timeout" | "--mem-mb", Some(v)) => {
                 rest.push(argv[i].clone());
                 rest.push(v);
@@ -102,7 +115,7 @@ pub fn serve(argv: &[String]) -> ! {
         .unwrap_or_else(|e| fail(&format!("brevi mcp --http: cannot start brevi mcp: {e}")));
     let stdin = child.stdin.take().unwrap();
     let stdout = child.stdout.take().unwrap();
-    let front = Arc::new(Front { token, origins, path, child: Mutex::new(stdin), pending: Mutex::new(HashMap::new()), next: AtomicU64::new(0) });
+    let front = Arc::new(Front { token, origins, hosts, fails: Fails::default(), path, child: Mutex::new(stdin), pending: Mutex::new(HashMap::new()), next: AtomicU64::new(0) });
 
     // Replies from the stdio server, back to the POST waiting for each.
     {
@@ -358,6 +371,60 @@ fn local_origin(o: &str) -> bool {
     ["http://localhost", "http://127.0.0.1", "http://[::1]", "https://localhost", "https://127.0.0.1", "https://[::1]"].iter().any(|p| o == *p || o.strip_prefix(p).is_some_and(|r| r.starts_with(':')))
 }
 
+fn local_host(h: &str) -> bool {
+    ["localhost", "127.0.0.1", "[::1]"].iter().any(|p| h == *p || h.strip_prefix(p).is_some_and(|r| r.starts_with(':') && r[1..].bytes().all(|b| b.is_ascii_digit())))
+}
+
+// Wrong tokens counted by address: an IPv4 address (IPv4-mapped IPv6 too), or an IPv6 /64, since one host
+// commonly holds a whole /64.
+fn addr_key(ip: std::net::IpAddr) -> String {
+    match ip {
+        std::net::IpAddr::V4(a) => a.to_string(),
+        std::net::IpAddr::V6(a) => match a.to_ipv4_mapped() {
+            Some(v4) => v4.to_string(),
+            None => {
+                let s = a.segments();
+                format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+            }
+        },
+    }
+}
+
+#[derive(Default)]
+struct Fails(Mutex<HashMap<String, (u32, Instant, Instant)>>); // address -> (wrong tokens in a row, last one, refused until)
+
+impl Fails {
+    // Seconds left to refuse this address for, if any.
+    fn wait(&self, peer: &str, now: Instant) -> Option<u64> {
+        let m = self.0.lock().unwrap();
+        let e = match m.get(peer) {
+            Some(e) => e,
+            None if m.len() >= MAX_ADDRS => m.get("*")?,
+            None => return None,
+        };
+        let until = e.2;
+        (until > now).then(|| (until - now).as_secs_f64().ceil().max(1.0) as u64)
+    }
+
+    fn fail(&self, peer: &str, now: Instant) {
+        let mut m = self.0.lock().unwrap();
+        if !m.contains_key(peer) && m.len() >= MAX_ADDRS {
+            m.retain(|_, e| now.duration_since(e.1) < FORGET);
+        }
+        let key = if m.contains_key(peer) || m.len() < MAX_ADDRS { peer } else { "*" };
+        let e = m.entry(key.to_string()).or_insert((0, now, now));
+        e.0 += 1;
+        e.1 = now;
+        if e.0 >= FREE_TRIES {
+            e.2 = now + Duration::from_secs((1u64 << (e.0 - FREE_TRIES).min(6)).min(MAX_WAIT));
+        }
+    }
+
+    fn ok(&self, peer: &str) {
+        self.0.lock().unwrap().remove(peer);
+    }
+}
+
 // Compares in time that does not depend on where the strings first differ.
 fn same(a: &str, b: &str) -> bool {
     let (a, b) = (a.as_bytes(), b.as_bytes());
@@ -367,6 +434,7 @@ fn same(a: &str, b: &str) -> bool {
 fn connection(front: &Front, conn: TcpStream) {
     let _ = conn.set_write_timeout(Some(IDLE));
     let Ok(mut w) = conn.try_clone() else { return };
+    let peer = conn.peer_addr().map_or_else(|_| "?".to_string(), |a| addr_key(a.ip()));
     let mut r = BufReader::new(Timed { s: conn, end: Instant::now() + REQUEST });
     loop {
         // each request (including the wait for it) gets its own deadline; bytes already buffered count
@@ -380,7 +448,7 @@ fn connection(front: &Front, conn: TcpStream) {
             Read_::Gone => return,
         };
         let close = req.close;
-        let (code, extra, body) = answer(front, &req);
+        let (code, extra, body) = answer(front, &req, &peer);
         let extra: Vec<(&str, &str)> = extra.iter().map(|(k, v)| (*k, v.as_str())).collect();
         if !respond(&mut w, code, &extra, &body, close) || close {
             return;
@@ -388,7 +456,7 @@ fn connection(front: &Front, conn: TcpStream) {
     }
 }
 
-fn answer(front: &Front, req: &Req) -> (u16, Vec<(&'static str, String)>, String) {
+fn answer(front: &Front, req: &Req, peer: &str) -> (u16, Vec<(&'static str, String)>, String) {
     if req.path != front.path {
         return (404, vec![], error_body(-32600, "Not Found"));
     }
@@ -398,9 +466,23 @@ fn answer(front: &Front, req: &Req) -> (u16, Vec<(&'static str, String)>, String
             return (403, vec![], error_body(-32600, "Forbidden: Origin not allowed"));
         }
     }
+    if front.token.is_none() {
+        if let Some(h) = req.header("host") {
+            let h = h.trim().to_ascii_lowercase();
+            if !local_host(&h) && !front.hosts.iter().any(|x| *x == h || h.strip_prefix(x.as_str()).is_some_and(|r| r.starts_with(':'))) {
+                return (403, vec![], error_body(-32600, "Forbidden: Host not allowed (a server without a token answers only localhost, 127.0.0.1 and [::1] unless --allow-host names the host)"));
+            }
+        }
+    }
     if let Some(t) = &front.token {
+        if let Some(wait) = front.fails.wait(peer, Instant::now()) {
+            return (429, vec![("retry-after", wait.to_string())], error_body(-32600, "Too Many Requests: too many wrong tokens from this address"));
+        }
         let ok = req.header("authorization").and_then(|a| a.strip_prefix("Bearer ").or_else(|| a.strip_prefix("bearer "))).is_some_and(|g| same(g.trim(), t));
-        if !ok {
+        if ok {
+            front.fails.ok(peer);
+        } else {
+            front.fails.fail(peer, Instant::now());
             return (401, vec![("www-authenticate", "Bearer".into())], error_body(-32600, "Unauthorized: a bearer token is required"));
         }
     }
@@ -526,6 +608,54 @@ mod tests {
     }
 
     // Mutated requests (deterministic xorshift): read_req never panics and never keeps more than MAX_BODY.
+    #[test]
+    fn wrong_tokens_back_off() {
+        let f = Fails::default();
+        let t = Instant::now();
+        for i in 0..FREE_TRIES - 1 {
+            f.fail("1.2.3.4", t);
+            assert_eq!(f.wait("1.2.3.4", t), None, "try {i}");
+        }
+        f.fail("1.2.3.4", t);
+        assert_eq!(f.wait("1.2.3.4", t), Some(1));
+        assert_eq!(f.wait("1.2.3.4", t + Duration::from_secs(1)), None);
+        assert_eq!(f.wait("5.6.7.8", t), None);
+        f.fail("1.2.3.4", t);
+        assert_eq!(f.wait("1.2.3.4", t), Some(2));
+        for _ in 0..20 {
+            f.fail("1.2.3.4", t);
+        }
+        assert_eq!(f.wait("1.2.3.4", t), Some(MAX_WAIT));
+        f.ok("1.2.3.4");
+        assert_eq!(f.wait("1.2.3.4", t), None);
+        // past MAX_ADDRS, new addresses share one count; old ones are forgotten after FORGET
+        for i in 0..MAX_ADDRS {
+            f.fail(&format!("a{i}"), t);
+        }
+        for _ in 0..FREE_TRIES {
+            f.fail("new", t);
+        }
+        assert_eq!(f.wait("other", t), Some(1));
+        assert_eq!(f.wait("a1", t), None);
+        let later = t + FORGET + Duration::from_secs(1);
+        f.fail("fresh", later);
+        assert_eq!(f.wait("other", later), None);
+        assert!(f.0.lock().unwrap().contains_key("fresh"));
+    }
+
+    #[test]
+    fn hosts_and_addresses() {
+        for h in ["localhost", "localhost:8000", "127.0.0.1:1", "[::1]:80"] {
+            assert!(local_host(h), "{h}");
+        }
+        for h in ["localhost.evil.com", "127.0.0.1.nip.io", "evil.com", "localhost:80x", "[::1]x"] {
+            assert!(!local_host(h), "{h}");
+        }
+        assert_eq!(addr_key("10.0.0.1".parse().unwrap()), "10.0.0.1");
+        assert_eq!(addr_key("::ffff:10.0.0.1".parse().unwrap()), "10.0.0.1");
+        assert_eq!(addr_key("2001:db8:1:2:3:4:5:6".parse().unwrap()), "2001:db8:1:2::/64");
+    }
+
     #[test]
     fn fuzz_framing() {
         let seeds: [&[u8]; 3] = [

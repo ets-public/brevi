@@ -26,6 +26,16 @@ body = image[image.index("FROM debian"):]
 check(body in cf and "sandbox-shim" in cf, "cloudflare/Dockerfile holds image/Dockerfile's body")
 # E2B, Daytona and Modal build the image from its text alone, so it must not COPY or ADD files.
 check(not re.search(r"^(COPY|ADD) ", image, re.M), "image/Dockerfile has no COPY or ADD")
+# Brevi and cargo run what their caches hold (cargo: config.toml can name a rustc wrapper, registry/src keeps the
+# crate sources it compiles), so no image may leave a cache or CARGO_HOME that every user can write: cargo's home
+# is each user's own ~/.cargo (CARGO_HOME set only while rustup installs the read-only toolchain).
+for name, text in (("image", image), ("cloudflare", cf)):
+    env = " ".join(re.findall(r"^ENV (.*(?:\\\n.*)*)", text, re.M))
+    check("CARGO_HOME" not in env and "BREVI_CACHE=" not in env, f"{name}/Dockerfile sets no shared CARGO_HOME or BREVI_CACHE")
+    loose = [m.group(0) for m in re.finditer(r"chmod\s+(?:-R\s+)?(\S+)\s+(\S+)", text)
+             if (re.fullmatch(r"[0-7]*[2367]", m.group(1)) or re.search(r"(^|,)[ao]*[ao][-+=]*[rxX]*w", m.group(1)))
+             and m.group(0) != "chmod 1777 /workspace"]
+    check(not loose, f"{name}/Dockerfile makes nothing but /workspace (sticky) writable by every user" + (f": {loose}" if loose else ""))
 # The shim's tag must match the @cloudflare/sandbox version the Worker uses.
 pkg = open(os.path.join(HERE, "cloudflare", "package.json")).read()
 ver = re.search(r'"@cloudflare/sandbox": "([^"]+)"', pkg).group(1)

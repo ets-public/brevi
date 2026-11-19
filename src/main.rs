@@ -46,7 +46,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--strict] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [ARGS...] [-- ARGS...] | brevi run --verify FILE.py [--strict] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi report [--clear] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp [--http [HOST:]PORT --token TOKEN]";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--strict] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--allow-unlocked-python] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [ARGS...] [-- ARGS...] | brevi run --verify FILE.py [--strict] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi report [--clear] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp [--http [HOST:]PORT --token TOKEN]";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -191,7 +191,54 @@ pub fn universal_newlines(s: &str) -> std::borrow::Cow<'_, str> {
 
 // `brevi run` options that take a value in the next argument (or after `=`).
 const RUN_VALUE_FLAGS: [&str; 9] = ["--allow", "--allow-py", "--allow-net", "--allow-read", "--allow-write", "--limit", "-o", "--timeout", "--input"];
-const RUN_FLAGS: [&str; 13] = ["--release", "--fast", "--native", "--sandbox", "--traceback", "--window", "--explain", "--standalone", "--no-cache", "--verify", "--strict", "--once", "--mcp"];
+const RUN_FLAGS: [&str; 14] = ["--allow-unlocked-python", "--release", "--fast", "--native", "--sandbox", "--traceback", "--window", "--explain", "--standalone", "--no-cache", "--verify", "--strict", "--once", "--mcp"];
+
+// Options of build, check, emit, test and fix (before `--`); run takes RUN_FLAGS and RUN_VALUE_FLAGS.
+const BUILD_VALUE_FLAGS: [&str; 7] = ["--allow", "--allow-py", "--allow-net", "--allow-read", "--allow-write", "--limit", "-o"];
+const BUILD_FLAGS: [&str; 11] = ["--allow-unlocked-python", "--release", "--fast", "--native", "--sandbox", "--traceback", "--window", "--explain", "--standalone", "--no-cache", "--strict"];
+// run options that only `brevi run --verify` reads.
+const VERIFY_ONLY: [&str; 4] = ["--once", "--mcp", "--timeout", "--input"];
+
+/// build, run, check, emit, test and fix: every dashed word before `--` must be one of the command's options. An
+/// unknown one is refused, never dropped: a misspelt `--sandbox` would otherwise build or run the program unheld.
+fn refuse_unknown_flags(argv: &[String]) -> Result<(), String> {
+    let cmd = argv[0].as_str();
+    let run = cmd == "run";
+    let (flags, values): (&[&str], &[&str]) = if run { (&RUN_FLAGS, &RUN_VALUE_FLAGS) } else { (&BUILD_FLAGS, &BUILD_VALUE_FLAGS) };
+    let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+    let verify = run && argv[..dash].iter().any(|a| a == "--verify");
+    let mut i = 1;
+    while i < dash {
+        let a = argv[i].as_str();
+        if !a.starts_with('-') || a == "-" {
+            i += 1;
+            continue;
+        }
+        // `--allow=read` and the like; `-o` takes its value only as the next word.
+        let name = a.split_once('=').map_or(a, |(n, _)| n);
+        let known = if name.len() < a.len() { name != "-o" && values.contains(&name) } else { flags.contains(&a) || values.contains(&a) };
+        if !known {
+            let hint = emit::closest(name, flags.iter().chain(values).copied()).map_or(String::new(), |c| format!(" (did you mean {c}?)"));
+            let pass = match cmd {
+                "run" => format!("; to pass it to the program, put it after -- (brevi run FILE -- {a})"),
+                "test" => format!("; to pass it to the tests, put it after -- (brevi test FILE -- {a})"),
+                _ => String::new(),
+            };
+            return Err(format!("brevi {cmd} has no option {a}{hint}{pass}"));
+        }
+        if run && !verify && VERIFY_ONLY.contains(&name) {
+            return Err(format!("{name} is an option of brevi run --verify and brevi verify: add --verify, or leave it out"));
+        }
+        i += if name.len() == a.len() && values.contains(&a) { 2 } else { 1 };
+    }
+    Ok(())
+}
+
+/// Removes `flag` from before `--` (a word after `--` is the program's): whether it was there.
+fn take_flag(argv: &mut Vec<String>, flag: &str) -> bool {
+    let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+    argv[..dash].iter().position(|a| a == flag).map(|i| argv.remove(i)).is_some()
+}
 
 /// `brevi run FILE a b`, as `python3 FILE a b`: the first argument after FILE that is not a Brevi option starts the
 /// program's arguments, so a `--` is put before it. A dashed word after FILE that is no Brevi option is refused
@@ -267,6 +314,12 @@ fn main() {
     }
     if argv.first().map(|a| a.as_str()) == Some("run") {
         if let Err(m) = split_run_args(&mut argv) {
+            eprintln!("{m}");
+            exit(2);
+        }
+    }
+    if matches!(argv.first().map(|a| a.as_str()), Some("build" | "run" | "check" | "emit" | "test" | "fix")) {
+        if let Err(m) = refuse_unknown_flags(&argv) {
             eprintln!("{m}");
             exit(2);
         }
@@ -348,16 +401,24 @@ fn main() {
         }
         return;
     }
-    if let Some(i) = argv.iter().position(|a| a == "--explain") {
-        argv.remove(i);
+    if argv.first().is_some_and(|c| c == "patch") {
+        eprintln!("usage: brevi patch FILE PATCH");
+        exit(2);
+    }
+    // Only build, run, test, check, fix and emit are left: any other word is no command (never a build).
+    if let Some(c) = argv.first().filter(|c| !matches!(c.as_str(), "build" | "run" | "test" | "check" | "fix" | "emit")) {
+        eprintln!("brevi has no command {c}\n{USAGE}");
+        exit(2);
+    }
+    if take_flag(&mut argv, "--explain") {
         EXPLAIN.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    let fast = argv.iter().position(|a| a == "--fast").map(|i| argv.remove(i)).is_some();
+    let fast = take_flag(&mut argv, "--fast");
     let dash0 = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
     if argv[..dash0].iter().position(|a| a == "--no-cache").map(|i| argv.remove(i)).is_some() {
         runcache::turn_off();
     }
-    let mut sandbox = argv.iter().position(|a| a == "--sandbox").map(|i| argv.remove(i)).is_some();
+    let mut sandbox = take_flag(&mut argv, "--sandbox");
     // --allow read,write,net,native, --allow-net HOSTS and --allow-py MODULES: what the caller grants a sandboxed program (caps.rs).
     // Either implies --sandbox.
     let mut grant: Vec<String> = vec![];
@@ -388,6 +449,13 @@ fn main() {
         }
         sandbox = true;
     }
+    // --allow-unlocked-python: let a sandboxed build run CPython where the kernel cannot lock it (it implies
+    // --sandbox; pybridge.rs lock_refusal).
+    let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+    if argv[..dash].iter().position(|a| a == "--allow-unlocked-python").map(|i| argv.remove(i)).is_some() {
+        caps::UNLOCKED_PY.store(true, std::sync::atomic::Ordering::Relaxed);
+        sandbox = true;
+    }
     // --limit cpu=2,mem=256,time=5,output=64,file=10: what the program may use while it runs (proc.rs).
     let limits = proc::take_limit_flags(&mut argv).unwrap_or_else(|m| {
         eprintln!("{m}");
@@ -416,8 +484,8 @@ fn main() {
     if argv[..traceback].iter().position(|a| a == "--traceback").map(|i| argv.remove(i)).is_some() || std::env::var("BREVI_TRACEBACK").is_ok_and(|v| !v.is_empty() && v != "0") {
         TRACEBACK.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    let standalone = argv.iter().position(|a| a == "--standalone").map(|i| argv.remove(i)).is_some();
-    if argv.iter().position(|a| a == "--window").map(|i| argv.remove(i)).is_some() {
+    let standalone = take_flag(&mut argv, "--standalone");
+    if take_flag(&mut argv, "--window") {
         gui::WINDOW.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
@@ -509,8 +577,9 @@ fn main() {
             guard_refusal(cmd, &file, &argv, line, &why, &gfile);
         }
     }
-    let release = argv.iter().any(|a| a == "--release");
-    let out_path = argv.iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
+    let opts = &argv[..argv.iter().position(|a| a == "--").unwrap_or(argv.len())];
+    let release = opts.iter().any(|a| a == "--release");
+    let out_path = opts.iter().position(|a| a == "-o").and_then(|i| opts.get(i + 1)).map(PathBuf::from);
     let prog_args: Vec<String> = argv.iter().position(|a| a == "--").map(|i| argv[i + 1..].to_vec()).unwrap_or_default();
 
     let src = match crate::read_src(&file) {
@@ -563,6 +632,11 @@ fn main() {
     }
     let foreign = ffi::split(&src).1;
     let mut deps = ffi::all_deps(&foreign);
+    let dep_errs = ffi::dep_errors(&deps, sandbox);
+    if !dep_errs.is_empty() {
+        dep_errs.iter().for_each(|(line, msg, fix)| print_diag(&Diag::new("check", (*line).max(1), 1, msg).fix_hint(fix)));
+        exit(1);
+    }
     // A tkinter program built with --window draws through eframe.
     if gui::window() && src.lines().any(|l| (l.starts_with("import tkinter") || l.starts_with("from tkinter")) && !deps.iter().any(|d| d.name == "eframe")) {
         deps.push(gui::window_dep());
@@ -1619,6 +1693,7 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
             Some(g) => foreign.rust_top.push_str(&g),
             None => {
                 pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("install CPython 3.13 with its shared library (libpython), or set BREVI_PYTHON to one")])?;
+                pybridge::lock_refusal().map_err(|m| vec![Diag::new("caps", 1, 1, &m).fix_hint(pybridge::LOCK_FIX)])?;
                 foreign.rust_top.push_str(&pybridge::runtime());
             }
         }
@@ -1930,6 +2005,26 @@ static RUST_LINES: std::sync::OnceLock<Vec<(usize, usize)>> = std::sync::OnceLoc
 
 // Where crates are built once and shared by every program: $BREVI_CACHE, else ~/.cache/brevi.
 pub(crate) fn cache_dir() -> PathBuf {
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let d = cache_dir_named();
+        match cache_trusted(&d) {
+            Ok(()) => d,
+            Err(why) => {
+                // Brevi runs the binaries kept here and links every program with the runtime libraries kept here,
+                // so a cache someone else can write is never used: a private one stands in (empty, so slower).
+                let own = tmp_root().join("cache");
+                if !runcache::in_child() {
+                    eprintln!("brevi: not using the build cache {}: {why}; using {} instead (set BREVI_CACHE to a folder only you can write)", d.display(), own.display());
+                }
+                own
+            }
+        }
+    })
+    .clone()
+}
+
+fn cache_dir_named() -> PathBuf {
     if let Ok(d) = std::env::var("BREVI_CACHE") {
         // Absolute, so a background build (src/tier.rs), which runs in its own folder, finds the same cache.
         return std::path::absolute(&d).unwrap_or_else(|_| PathBuf::from(d));
@@ -1942,6 +2037,180 @@ pub(crate) fn cache_dir() -> PathBuf {
     }
 }
 
+// The build cache is used only if no other user can change what is in it: the folder and every folder or file
+// directly in it are this user's, not links, every folder above it safe (folders_above_ok), and writable by no other user (group-writable only for this
+// user's own group, as a umask of 002 makes them). Brevi makes everything deeper itself, inside these. Unix
+// only: on Windows the cache is under the user's own profile.
+#[cfg(unix)]
+fn cache_trusted(d: &Path) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    unsafe extern "C" {
+        fn getegid() -> u32;
+    }
+    // SAFETY: getegid takes nothing and cannot fail.
+    let gid = unsafe { getegid() };
+    let me = privdir::ax_priv::me();
+    std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+    folders_above_ok(d)?;
+    let ok = |p: &Path, m: &std::fs::Metadata| -> Result<(), String> {
+        if m.uid() != me {
+            return Err(format!("{} belongs to another user (uid {})", p.display(), m.uid()));
+        }
+        if m.mode() & 0o002 != 0 || (m.mode() & 0o020 != 0 && m.gid() != gid) {
+            return Err(format!("{} can be changed by other users (mode {:o})", p.display(), m.mode() & 0o7777));
+        }
+        Ok(())
+    };
+    ok(d, &std::fs::metadata(d).map_err(|e| e.to_string())?)?;
+    for e in std::fs::read_dir(d).map_err(|e| e.to_string())?.flatten() {
+        let p = e.path();
+        let m = std::fs::symlink_metadata(&p).map_err(|e| e.to_string())?;
+        if m.file_type().is_symlink() {
+            return Err(format!("{} is a link", p.display()));
+        }
+        ok(&p, &m)?;
+    }
+    Ok(())
+}
+
+// Every folder above `p` (as given and as resolved) belongs to this user or root (or, in a user namespace, the
+// unmapped owner of the host's folders), and no other user can rename what is in it: not writable by others
+// unless sticky as /tmp is, and group-writable only for this user's own group (a umask of 002 makes ~/.cache so).
+#[cfg(unix)]
+fn folders_above_ok(p: &Path) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    unsafe extern "C" {
+        fn getegid() -> u32;
+    }
+    // SAFETY: getegid takes nothing and cannot fail.
+    let gid = unsafe { getegid() };
+    let me = privdir::ax_priv::me();
+    let other = privdir::ax_priv::unmapped();
+    let given = std::path::absolute(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let real = std::fs::canonicalize(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    for top in [given, real] {
+        for a in top.ancestors().skip(1) {
+            let m = std::fs::metadata(a).map_err(|e| format!("{}: {e}", a.display()))?;
+            if m.uid() != me && m.uid() != 0 && Some(m.uid()) != other {
+                return Err(format!("{} belongs to another user (uid {})", a.display(), m.uid()));
+            }
+            let sticky = m.mode() & 0o1000 != 0;
+            if !sticky && (m.mode() & 0o002 != 0 || (m.mode() & 0o020 != 0 && m.gid() != gid)) {
+                return Err(format!("{} can be changed by other users and is not sticky", a.display()));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn cache_trusted(_: &Path) -> Result<(), String> {
+    Ok(())
+}
+
+// A runtime library built ahead of time into a read-only seed folder, BREVI_CACHE_SEED (the sandbox image warms
+// one as root, so each user's own cache starts without the minutes it takes to build them). `rel` is the
+// library's path inside the cache. Used only if no user but root and this one can change it: the seed folder,
+// every folder down to the file and the file itself are owned by root or this user, are not links, and are
+// writable by no one else, and every folder above the seed is safe (folders_above_ok).
+#[cfg(unix)]
+pub(crate) fn seed_file(rel: &Path) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let seed = PathBuf::from(std::env::var_os("BREVI_CACHE_SEED").filter(|v| !v.is_empty())?);
+    if !seed.is_absolute() || rel.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+        return None;
+    }
+    folders_above_ok(&seed).ok()?;
+    let me = privdir::ax_priv::me();
+    let mut p = seed;
+    let mut parts = vec![p.clone()];
+    for c in rel.components() {
+        p.push(c);
+        parts.push(p.clone());
+    }
+    for q in &parts {
+        let m = std::fs::symlink_metadata(q).ok()?;
+        if m.file_type().is_symlink() || (m.uid() != 0 && m.uid() != me) || m.mode() & 0o022 != 0 {
+            return None;
+        }
+    }
+    std::fs::metadata(&p).ok().filter(|m| m.is_file()).map(|_| p)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn seed_file(_: &Path) -> Option<PathBuf> {
+    None
+}
+
+// The cargo home crate builds run with: $CARGO_HOME, else ~/.cargo. cargo runs what it holds (config.toml can name
+// a rustc wrapper, a linker or build scripts' flags, and registry/src keeps the crate sources it compiles without
+// checking them again), so a home another user can change is never used: a private one stands in (empty, so its
+// crates are fetched again). Used only if the folder and everything directly in it (a link is followed and its
+// target checked the same way) belong to this user or root and are writable by no other user (group-writable
+// only for this user's own group), and every folder above it is safe (folders_above_ok).
+fn cargo_home() -> PathBuf {
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let named = std::env::var_os("CARGO_HOME")
+            .filter(|v| !v.is_empty())
+            .map(|v| std::path::absolute(&v).unwrap_or_else(|_| PathBuf::from(v)))
+            .or_else(|| std::env::var_os("HOME").filter(|h| !h.is_empty()).map(|h| PathBuf::from(h).join(".cargo")));
+        let why = match &named {
+            Some(d) => match cargo_home_trusted(d) {
+                Ok(()) => return d.clone(),
+                Err(why) => why,
+            },
+            None => "neither CARGO_HOME nor HOME is set".into(),
+        };
+        let own = tmp_root().join("cargo");
+        // Only builds (the child phase, where crates are built) get here, so this prints once per build.
+        let d = named.map(|d| d.display().to_string()).unwrap_or_default();
+        eprintln!("brevi: not using the cargo home {d}: {why}; using {} instead (set CARGO_HOME to a folder only you can write)", own.display());
+        own
+    })
+    .clone()
+}
+
+#[cfg(unix)]
+fn cargo_home_trusted(d: &Path) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    unsafe extern "C" {
+        fn getegid() -> u32;
+    }
+    // SAFETY: getegid takes nothing and cannot fail.
+    let gid = unsafe { getegid() };
+    let me = privdir::ax_priv::me();
+    std::fs::create_dir_all(d).map_err(|e| format!("cannot make it: {e}"))?;
+    folders_above_ok(d)?;
+    let ok = |p: &Path, m: &std::fs::Metadata| -> Result<(), String> {
+        if m.uid() != me && m.uid() != 0 {
+            return Err(format!("{} belongs to another user (uid {})", p.display(), m.uid()));
+        }
+        if m.mode() & 0o002 != 0 || (m.mode() & 0o020 != 0 && m.gid() != gid) {
+            return Err(format!("{} can be changed by other users (mode {:o})", p.display(), m.mode() & 0o7777));
+        }
+        Ok(())
+    };
+    ok(d, &std::fs::metadata(d).map_err(|e| e.to_string())?)?;
+    for e in std::fs::read_dir(d).map_err(|e| e.to_string())?.flatten() {
+        let p = e.path();
+        let link = std::fs::symlink_metadata(&p).map_err(|e| e.to_string())?;
+        if link.file_type().is_symlink() {
+            // A dangling link is refused too: another user could make what it names.
+            folders_above_ok(&p)?;
+            ok(&p, &std::fs::metadata(&p).map_err(|e| format!("{}: {e}", p.display()))?)?;
+        } else {
+            ok(&p, &link)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn cargo_home_trusted(_: &Path) -> Result<(), String> {
+    Ok(())
+}
+
 // Builds with cargo, for programs that use crates. Same results as compile().
 fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Option<Result<(), String>> {
     // The cargo project stays at one path per source file (build_dir_path/cargo, not this process's folder), so
@@ -1949,7 +2218,7 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
     // A lock file keeps two processes building the same file from writing it at the same time.
     let base = dir.parent().filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("brevi-"))).unwrap_or(dir);
     let name = base.file_name().map(|n| n.to_string_lossy().replace('-', "_")).unwrap_or_else(|| "brevi_prog".into());
-    let dir = &base.join("cargo");
+    let dir = &std::path::absolute(base.join("cargo")).unwrap_or_else(|_| base.join("cargo"));
     std::fs::create_dir_all(dir).ok();
     let lock = std::fs::File::create(base.join("build.lock")).ok();
     if let Some(l) = &lock {
@@ -1976,6 +2245,11 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
     }
     c.args(["-q", "--message-format=json", "--manifest-path"]).arg(&tp);
     c.env("CARGO_TARGET_DIR", cache_dir().join("target"));
+    // cargo also reads .cargo/config.toml in every folder above the one it runs in, so it runs in the project's own
+    // folder inside Brevi's private temp folder (tmp_root), never in the caller's (a shared /workspace
+    // or /tmp, where another user could leave one), and with a home only this user can change (cargo_home).
+    c.current_dir(dir);
+    c.env("CARGO_HOME", cargo_home());
     let o = match c.output() {
         Ok(o) => o,
         Err(e) => {
@@ -2249,10 +2523,14 @@ fn runtime_lib(release: bool) -> Option<PathBuf> {
             }
             let src = runtime_lib_source();
             let mode = if release { "release" } else { "dev-o3" };
-            let dir = cache_dir().join("rt").join(format!("{:016x}-{mode}", fnv(&[&src, rustc_version()], 1)));
+            let name = format!("{:016x}-{mode}", fnv(&[&src, rustc_version()], 1));
+            let dir = cache_dir().join("rt").join(&name);
             let lib = dir.join("libbrevi_rt.rlib");
             if lib.exists() {
                 return Some(lib);
+            }
+            if let Some(seeded) = seed_file(&Path::new("rt").join(&name).join("libbrevi_rt.rlib")) {
+                return Some(seeded);
             }
             std::fs::create_dir_all(&dir).ok()?;
             // programs built side by side wait for one build of it

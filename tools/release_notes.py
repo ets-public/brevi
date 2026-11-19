@@ -57,7 +57,7 @@ def read_report(tag, rel):
 
 
 FIGURES = {
-    "cov": r"\*\*Coverage ([\d.]+%)\*\* \((\d+) of (\d+) tests",
+    "cov": r"\*\*Coverage ([\d.]+%)\*\*(?: of the scored suite, with \d+ string-as-code tests excluded)? \((\d+) of (\d+) tests",
     "wrong": r"\*\*Wrong: (\d+)\*\*",
     "design": r"\*\*Refused by design: (\d+)\*\*",
     "asserting": r"\*\*Assertion-bearing coverage ([\d.]+%)\*\* \((\d+) of (\d+):[^;]*; (\d+) matches print nothing",

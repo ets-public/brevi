@@ -355,7 +355,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "zoneinfo" => &["ZoneInfo", "ZoneInfoNotFoundError", "available_timezones", "TZPATH", "reset_tzpath"],
         "gc" => &["collect"],
         "weakref" => &["ref", "proxy"],
-        "inspect" => &["Signature", "isabstract"],
+        "inspect" => &["Signature", "Parameter", "signature", "isabstract"],
         _ => return false,
     };
     names.contains(&n)

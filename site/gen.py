@@ -102,7 +102,7 @@ def home_jsonld(version):
     return [{
         "@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Brevi",
         "url": "https://brevi-lang.org/", "image": "https://brevi-lang.org/social.png",
-        "description": "A compiler that builds the Python an AI coding agent writes into a fast, memory-safe native binary through Rust, with the same output as CPython.",
+        "description": "A compiler that builds the Python an AI coding agent writes into a fast-starting native binary through Rust, checked against CPython's output.",
         "applicationCategory": "DeveloperApplication", "applicationSubCategory": "Compiler",
         "operatingSystem": "Linux, macOS, Windows", "softwareVersion": version,
         "license": "https://www.apache.org/licenses/LICENSE-2.0",
@@ -508,7 +508,7 @@ def footer(site="org", public=False):
   <div class="wrap get">
     <div>
       <h2>Install Brevi</h2>
-      <p>One command with <a href="https://docs.astral.sh/uv/" rel="noopener">uv</a>, no Rust needed, on Linux x86-64 and macOS; on Linux ARM64 and Windows from the next release (Rust from rustup until then). The install script, pip, npm and Docker are in the <a href="%s/docs/install">install guide</a>. Free and open source under Apache-2.0.</p>
+      <p>One command with <a href="https://docs.astral.sh/uv/" rel="noopener">uv</a>, no Rust needed, on Linux x86-64 and macOS; on Linux ARM64 and Windows from v0.28.3 (v0.28.2 and earlier: Rust from rustup). The install script, pip, npm and Docker are in the <a href="%s/docs/install">install guide</a>. Free and open source under Apache-2.0.</p>
     </div>
     <div>
       %s

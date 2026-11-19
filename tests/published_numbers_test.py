@@ -44,8 +44,18 @@ class Scan(unittest.TestCase):
         self.assertTrue(pn.scan("x.md", "`--release` median 9.8x", C, MED))
         self.assertEqual(pn.scan("x.md", "median 19.3x", C, MED), [])
 
-    def test_passes_a_typed_median_with_the_dynamic_one(self):
-        self.assertEqual(pn.scan("x.md", "typed median 9.3x, dynamic median 0.85x", C, MED), [])
+    def test_passes_a_typed_median_with_the_dynamic_one_and_its_scope(self):
+        self.assertEqual(pn.scan("x.md", "typed median 9.3x, dynamic median 0.85x; only a small share of programs take the typed build", C, MED), [])
+        self.assertEqual(pn.scan("x.md", "typed median 9.3x, dynamic median 0.85x, typed share 2.6%", dict(C, typed="2.6%"), MED), [])
+
+    def test_refuses_a_typed_median_without_saying_few_programs_take_it(self):
+        self.assertTrue(pn.scan("x.md", "typed median 9.3x, dynamic median 0.85x", C, MED))
+        self.assertEqual(pn.scan("x.md", "| **Median** | **9.3x** | **0.85x** |", C, MED), [])
+        self.assertEqual(pn.scan(pn.OUT, "typed median 9.3x, dynamic median 0.85x", C, MED), [])
+
+    def test_refuses_a_rounded_share(self):
+        self.assertTrue(pn.scan("x.html", "it matches <strong>97% of the tests it scores</strong>", C, MED))
+        self.assertEqual(pn.scan("x.md", f"97% {SCOPE}; 197%; 97.5%; 970%", C, MED), [])
 
 
 class ShallowTag(unittest.TestCase):

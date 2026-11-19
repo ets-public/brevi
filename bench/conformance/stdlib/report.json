@@ -1,17 +1,17 @@
 {
-"brevi": "brevi 0.28.2",
-"commit": "17288ca0d1b6",
+"brevi": "brevi 0.28.3",
+"commit": "bf733ef55845",
 "python": "3.13.13",
 "tag": "v3.13.13",
-"date": "2026-11-17",
+"date": "2026-11-19",
 "platform": "linux",
 "sandboxed": false,
 "timeout_s": 20,
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 2023,
-"refused": 25,
+"matched": 2026,
+"refused": 22,
 "by_design": 6,
 "string_model": 0,
 "cpython_private": 0,
@@ -25,16 +25,16 @@
 "scored": 2051,
 "matched_through_cpython": 2,
 "matched_silent": 53,
-"coverage": 0.985372988785958,
+"coverage": 0.9868356899073623,
 "wrong": 0,
-"matched_asserting": 1969,
-"assert_coverage": 0.9600195026816187,
+"matched_asserting": 1972,
+"assert_coverage": 0.961482203803023,
 "matched_typed": 23,
-"typed_share": 0.011380504700643246
+"typed_share": 0.011363636363636364
 },
 "dyn": {
-"matched": 2023,
-"refused": 25,
+"matched": 2026,
+"refused": 22,
 "by_design": 6,
 "string_model": 0,
 "cpython_private": 0,
@@ -48,10 +48,10 @@
 "scored": 2051,
 "matched_through_cpython": 0,
 "matched_silent": 53,
-"coverage": 0.9863481228668942,
+"coverage": 0.9878108239882983,
 "wrong": 0,
-"matched_asserting": 1970,
-"assert_coverage": 0.9605070697220868,
+"matched_asserting": 1973,
+"assert_coverage": 0.961969770843491,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -491,8 +491,8 @@
 },
 "test_dataclasses": {
 "normal": {
-"matched": 236,
-"refused": 10,
+"matched": 239,
+"refused": 7,
 "by_design": 0,
 "string_model": 0,
 "cpython_private": 0,
@@ -506,16 +506,16 @@
 "scored": 247,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.9554655870445344,
+"coverage": 0.9676113360323887,
 "wrong": 0,
-"matched_asserting": 234,
-"assert_coverage": 0.9473684210526315,
+"matched_asserting": 237,
+"assert_coverage": 0.9595141700404858,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 236,
-"refused": 10,
+"matched": 239,
+"refused": 7,
 "by_design": 0,
 "string_model": 0,
 "cpython_private": 0,
@@ -529,10 +529,10 @@
 "scored": 247,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.9554655870445344,
+"coverage": 0.9676113360323887,
 "wrong": 0,
-"matched_asserting": 234,
-"assert_coverage": 0.9473684210526315,
+"matched_asserting": 237,
+"assert_coverage": 0.9595141700404858,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -588,14 +588,14 @@
 },
 "paths": {
 "normal": {
-"dynamic": 2002,
-"refused": 31,
+"dynamic": 2005,
+"refused": 28,
 "typed": 23,
 "pybridge": 2
 },
 "dyn": {
-"dynamic": 2027,
-"refused": 31
+"dynamic": 2030,
+"refused": 28
 }
 },
 "tests": [
@@ -12156,12 +12156,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found Some"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "inspect.signature of a dynamic build's functions needs CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -12478,12 +12478,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found C"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "inspect.signature of a dynamic build's functions needs CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -12562,12 +12562,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "inspect.signature of a dynamic build's functions needs CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },

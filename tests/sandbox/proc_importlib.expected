@@ -1,0 +1,8 @@
+{"line":5,"msg":"import importlib (a Python library, run by CPython) needs allow native","fix":"do without it, or the caller grants it: --allow-py importlib (MCP tools: \"allow_py\": [\"importlib\"])"}
+exit 1
+-- dynamic
+{"line":5,"msg":"import importlib (a Python library, run by CPython) needs allow native","fix":"do without it, or the caller grants it: --allow-py importlib (MCP tools: \"allow_py\": [\"importlib\"])"}
+exit 1
+-- typed
+{"line":5,"msg":"import importlib (a Python library, run by CPython) needs allow native","fix":"do without it, or the caller grants it: --allow-py importlib (MCP tools: \"allow_py\": [\"importlib\"])"}
+exit 1

@@ -107,6 +107,12 @@ pub fn blocked_noise(d: &crate::diag::Diag) -> bool {
 // The import lines of Python libraries CPython would run (not Brevi's built-in modules, not files of the
 // program): (line, module), for caps.rs.
 pub fn bridged_imports(src: &str) -> Vec<(usize, String)> {
+    line_imports(src).into_iter().filter(|(_, m)| ok_name(m) && bridged(m)).collect()
+}
+
+// Every import the line test reads, bridged or not: (line, module), for a line that starts (after spaces)
+// `import ` or `from `. caps.rs holds a held program to imports this sees (import_gaps).
+pub fn line_imports(src: &str) -> Vec<(usize, String)> {
     let mut out = vec![];
     for (i, l) in src.lines().enumerate() {
         let t = l.split(" #").next().unwrap_or("").trim();
@@ -117,11 +123,7 @@ pub fn bridged_imports(src: &str) -> Vec<(usize, String)> {
         } else {
             vec![]
         };
-        for m in mods {
-            if ok_name(m) && bridged(m) {
-                out.push((i + 1, m.to_string()));
-            }
-        }
+        out.extend(mods.into_iter().map(|m| (i + 1, m.to_string())));
     }
     out
 }
@@ -1294,10 +1296,50 @@ fn consts() -> String {
         None => String::new(),
     };
     let subs = SUBS.with(|x| x.borrow().clone());
-    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\nconst AX_PYB_HOLD: AxPybHold = {};\nconst AX_PYB_NET: u8 = {};\nconst AX_PYB_STANDALONE: bool = {};\n", fs_hold(), net_hold(), STANDALONE.load(std::sync::atomic::Ordering::Relaxed))
+    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\nconst AX_PYB_HOLD: AxPybHold = {};\nconst AX_PYB_NET: u8 = {};\nconst AX_PYB_STANDALONE: bool = {};\nconst AX_PYB_UNLOCKED: bool = {};\n", fs_hold(), net_hold(), STANDALONE.load(std::sync::atomic::Ordering::Relaxed), crate::caps::unlocked_py())
 }
 
-// Under --sandbox, CPython's network is held by the kernel too (Linux seccomp, pyrt_load.rs ax_pyb_nonet):
+// The kernel locks a sandboxed CPython needs that this system cannot take: the file lock (Landlock) exists on
+// Linux only, the network lock (seccomp) on Linux x86-64 and arm64 only. `fs` and `net`: whether the build
+// needs them (fs_hold, net_hold). Kept apart from the build's own system so tests can name others.
+pub fn lock_gaps(os: &str, arch: &str, fs: bool, net: bool) -> Vec<&'static str> {
+    let mut gaps = vec![];
+    if fs && os != "linux" {
+        gaps.push("file");
+    }
+    if net && !(os == "linux" && matches!(arch, "x86_64" | "aarch64")) {
+        gaps.push("network");
+    }
+    gaps
+}
+
+pub const LOCK_FIX: &str = "build on Linux, where the kernel locks CPython; grant what CPython reaches unlocked (--allow read,write for files, --allow net for the network); or pass --allow-unlocked-python to run CPython unlocked, with a warning on every start";
+
+// Under --sandbox Brevi locks CPython to the grants with the kernel (pyrt_load.rs ax_pyb_hold, ax_pyb_nonet).
+// Where a lock this build needs does not exist, the build is refused, never built to run CPython unlocked
+// without anyone knowing; `--allow-unlocked-python` builds it anyway, and the program then warns on every
+// start. (Builds are for the system Brevi runs on, so its own OS and architecture are the target's.) A Linux
+// kernel without Landlock or seccomp is caught when the program starts, by the same rule.
+pub fn lock_refusal() -> Result<(), String> {
+    if !crate::caps::sandboxed() || crate::caps::unlocked_py() {
+        return Ok(());
+    }
+    let gaps = lock_gaps(std::env::consts::OS, std::env::consts::ARCH, fs_hold() != "None", net_hold() == 1);
+    if gaps.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "--sandbox: Brevi cannot check what CPython (--allow-py or --allow native) opens or connects to, so the kernel must lock it to the grants, and the {} lock{} exist{} only on Linux{}: this {}-{} build is refused rather than run CPython unlocked",
+        gaps.join(" and "),
+        if gaps.len() > 1 { "s" } else { "" },
+        if gaps.len() > 1 { "" } else { "s" },
+        if gaps.contains(&"network") { " (the network lock on x86-64 and arm64)" } else { "" },
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    ))
+}
+
+// Under --sandbox, CPython's network is held by the kernel too (Linux seccomp, pyrt_load.rs ax_pyb_seccomp):
 // 0 no hold (no sandbox, or --allow net), 1 no network at all (nothing granted), 2 hosts named with
 // --allow-net, which the kernel cannot hold CPython to, so the program is refused when CPython starts.
 fn net_hold() -> u8 {
@@ -1370,4 +1412,23 @@ pub fn bundle(file: &str, bin: &std::path::Path) -> Result<String, String> {
         note.push_str(l);
     }
     Ok(note)
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use super::lock_gaps;
+
+    // Under --sandbox a CPython build is refused where a lock it needs does not exist (lock_refusal).
+    #[test]
+    fn locks_exist_only_on_linux() {
+        assert!(lock_gaps("linux", "x86_64", true, true).is_empty());
+        assert!(lock_gaps("linux", "aarch64", true, true).is_empty());
+        assert_eq!(lock_gaps("linux", "riscv64", true, true), ["network"]);
+        assert_eq!(lock_gaps("linux", "riscv64", true, false), Vec::<&str>::new());
+        assert_eq!(lock_gaps("macos", "aarch64", true, true), ["file", "network"]);
+        assert_eq!(lock_gaps("windows", "x86_64", true, false), ["file"]);
+        assert_eq!(lock_gaps("windows", "x86_64", false, true), ["network"]);
+        // read, write and net all granted: nothing to lock, nothing refused
+        assert!(lock_gaps("windows", "x86_64", false, false).is_empty());
+    }
 }

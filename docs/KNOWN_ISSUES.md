@@ -1,6 +1,6 @@
 # Known issues
 
-This page describes `main` as of v0.28.2 (16 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
+This page describes `main` as of v0.28.3 (19 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
 
 ## Correctness and conformance
 
@@ -40,7 +40,7 @@ Outside the aim: text on stderr, and output CPython itself changes between runs 
 
 Windows builds, runs and verifies programs natively, including library calls through CPython (the `python` on PATH needs its DLL). Differences:
 
-- `--limit mem` works, held by a Job Object around the program and every process it starts; from the next release `cpu` does too (it counts their user and kernel time together; v0.28.2 and earlier refuse it on Windows). `time`, `output`, `written`, `net` and `files` work as on Linux. `--limit file`, `fds` and `threads` are refused with an error, not half enforced: Windows has no limit on the size of one file or on the handles a process opens, and a Job Object can cap processes but not threads.
+- `--limit mem` works, held by a Job Object around the program and every process it starts; from v0.28.3 `cpu` does too (it counts their user and kernel time together; v0.28.2 and earlier refuse it on Windows). `time`, `output`, `written`, `net` and `files` work as on Linux. `--limit file`, `fds` and `threads` are refused with an error, not half enforced: Windows has no limit on the size of one file or on the handles a process opens, and a Job Object can cap processes but not threads.
 - `--standalone` works (from v0.28.1; one .exe carrying CPython, unpacked once into `%LOCALAPPDATA%\brevi\py`). It is refused at build time with Microsoft Store Python or a Python for another CPU. A cache folder deep enough to push an unpacked file past 260 characters is refused at run time (set `BREVI_PY_CACHE` shorter). A standalone .exe changed after the build, for example by code signing, refuses to run rather than use an installed Python.
 - Windows' own SQLite can be a different version from CPython's, so version-specific output may differ.
 - DuckDB and ONNX Runtime need their libraries installed (`pip install duckdb`, onnxruntime 1.16 or later).
@@ -54,8 +54,8 @@ Tests: [tests/windows/check.ps1](../tests/windows/check.ps1).
 
 The full model is [THREAT_MODEL.md](THREAT_MODEL.md). No external security audit yet: we have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox. The sandbox is a policy layer, not an isolation boundary: a compile-time capability check plus Brevi's own runtime code, with no container or VM around the program. Run untrusted code in a container or VM. In short:
 
-- `--allow-py` and `--allow native` are full trust. For CPython, files are held on Linux 5.13 or later with Landlock, and the network on Linux x86-64 and arm64 with seccomp (next line); a `rust fn` or crate is not held at all. Where Landlock is missing, named folders are refused, and with none named CPython keeps full file access.
-- Processes and the `files`, `net` and `written` limits are not held for CPython. The network is held for it only on Linux, from v0.28.0 (no network without a grant; hosts named with `--allow-net` are refused); on macOS and Windows CPython keeps the network.
+- `--allow-py` and `--allow native` are full trust. For CPython, files are held on Linux 5.13 or later with Landlock, and the network on Linux x86-64 and arm64 with seccomp (next line); a `rust fn` or crate is not held at all. Where a lock is missing (macOS, Windows, Linux without Landlock), the program is refused from v0.28.3 unless built with `--allow-unlocked-python`, which warns on every start.
+- Processes and the `files`, `net` and `written` limits are not held for CPython. The network is held for it only on Linux, from v0.28.0 (no network without a grant; hosts named with `--allow-net` are refused); on macOS and Windows, from v0.28.3, such a program is refused unless built with `--allow-unlocked-python` (it then warns on every start and CPython keeps the network).
 - `--allow read` and `--allow write` are whole-account grants. A swap of a folder for a symlink by another process between check and open can redirect an open.
 - The network grant matches host names. `--allow net` reaches anything the machine can, including `localhost` and cloud metadata.
 - Not limited: connections to granted hosts, disk space used by overwriting bytes, writes through memory maps.

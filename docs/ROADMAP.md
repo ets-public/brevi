@@ -180,7 +180,11 @@ image by month 6; the SDK has a 10-line example and an integration test in CI.
 - Security testing in the open: attack surface, fuzz targets and red-team results in `docs/SECURITY_TESTING.md`.
 - OS-level isolation for hosted and recommended local use: the platform's VM or microVM, optionally gVisor or
   Firecracker, with the in-process capability check as a second layer.
-- Wider Landlock coverage; on macOS and Windows, state the gap or refuse.
+- Real kernel locks for CPython under `--sandbox` on macOS and Windows, to replace today's refusal
+  (`--allow-unlocked-python` is the only way past it now): macOS through the Seatbelt sandbox (`sandbox-exec`
+  profiles, or `sandbox_init` from the program), Windows through job objects plus an AppContainer or restricted
+  token, each holding files to the grants and the network to none. The refusal stays until a lock is fully
+  enforced, tested on that OS in CI and recorded in `docs/SECURITY_TESTING.md`; nothing ships half held.
 - Fuzz the capability check and the bridges; any escape is a security release.
 - Sandbox claims on the site match `docs/THREAT_MODEL.md` exactly, and no page calls the sandbox an isolation boundary.
 

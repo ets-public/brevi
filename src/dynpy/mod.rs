@@ -816,6 +816,14 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         if imps.iter().any(|m| m == "collections") && !imps.iter().any(|m| m == "collections.abc") && texts.get(&mods[k].name).is_some_and(|t| t.1.contains(".abc")) {
             imps.push("collections.abc".into());
         }
+        // Brevi's own _brevi_* modules serve its copies of libraries; CPython has none, so a program's import of
+        // one (that is not a file of the program) does not build rather than reach Brevi's internals (from PR #675)
+        if !own_mods.contains(&mods[k].name) {
+            if let Some(m) = imps.iter().find(|m| m.split('.').next().is_some_and(|t| t.starts_with("_brevi")) && !dir.join(format!("{}.py", m.replace('.', "/"))).is_file() && !dir.join(m.replace('.', "/")).join("__init__.py").is_file()) {
+                let f = texts.get(&mods[k].name).map_or(file.to_string(), |t| t.0.clone());
+                return Err((f, 0, format!("importing {m}, a module of Brevi's own (CPython has no such module), is not supported in dynamic builds")));
+            }
+        }
         // the builtin open(): Brevi's, in _brevi_open (emit.rs loads it when the program uses no CPython library)
         if texts.get(&mods[k].name).is_some_and(|t| uses_open(&t.1)) {
             imps.push("_brevi_open".into());
@@ -1059,6 +1067,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     rust = borrow_cells(&rust);
     rust.push_str(&emit::ic_statics());
     if !used.is_empty() {
+        crate::pybridge::lock_refusal().map_err(|m| (file.to_string(), 0, format!("{m}; {}", crate::pybridge::LOCK_FIX)))?;
         crate::pybridge::set_file(file);
         rust.push_str(&crate::pybridge::dyn_runtime());
         rust.push_str(GLUE);
@@ -1083,12 +1092,15 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     }
     // child processes (Brevi's asyncio create_subprocess_exec / _shell): the glue only where the program starts one
     if own_mods.contains("asyncio") || mods.iter().any(|m| m.name == "asyncio") {
-        if texts.iter().any(|(n, (_, t))| n != "asyncio" && t.contains("create_subprocess_")) {
+        // Under --sandbox without the native grant the glue is never attached (_brevi_proc then refuses every call),
+        // and the glue itself refuses too (PROC_SANDBOX / PROC_NATIVE), whatever caps.rs saw in the source.
+        let proc_ok = !crate::caps::sandboxed() || crate::caps::granted("native");
+        if proc_ok && texts.iter().any(|(n, (_, t))| n != "asyncio" && t.contains("create_subprocess_")) {
             if !cfg!(unix) {
                 return Err((file.to_string(), 0, "Brevi's own asyncio subprocesses run on Linux and macOS".into()));
             }
             rust = rust.replacen("fn main() { ", "fn main() { PROC.set(brevi_procglue::ops()).ok(); ", 1);
-            rust.push('\n');
+            rust.push_str(&format!("\nconst PROC_SANDBOX: bool = {};\nconst PROC_NATIVE: bool = {};\n", crate::caps::sandboxed(), crate::caps::granted("native")));
             rust.push_str(include_str!("procglue.rs"));
         }
     }
@@ -1260,10 +1272,14 @@ fn lib_copies(own: &HashSet<String>) -> Vec<String> {
 
 // The runtime as a library, built once per rustc version into the cache.
 fn runtime_lib(cache: &Path, rustc_v: &str) -> Result<PathBuf, String> {
-    let dir = cache.join("dynrt").join(format!("{:016x}", fnv(&[RUNTIME, rustc_v])));
+    let name = format!("{:016x}", fnv(&[RUNTIME, rustc_v]));
+    let dir = cache.join("dynrt").join(&name);
     let lib = dir.join("libbrevi_dyn.rlib");
     if lib.exists() {
         return Ok(lib);
+    }
+    if let Some(seeded) = crate::seed_file(&Path::new("dynrt").join(&name).join("libbrevi_dyn.rlib")) {
+        return Ok(seeded);
     }
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     // programs built side by side wait for one build of the runtime instead of each building it

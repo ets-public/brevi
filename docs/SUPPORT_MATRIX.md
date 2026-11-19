@@ -2,7 +2,7 @@
 
 ## Resource limits by platform
 
-Where each `--limit` is enforced. A limit marked `-` is refused on that platform, never ignored. `written`, `net` and `files` are counted by Brevi's own code, so they also need `--sandbox` without `--allow native` or `--allow-py`. `threads` also needs a pids cgroup Brevi can create. Source of truth: `LIMIT_PLATFORMS` in `src/proc.rs`; `tools/limits_check.py` checks this table. The table shows `main`: Windows `cpu` is from the next release (v0.28.2 and earlier refuse it).
+Where each `--limit` is enforced. A limit marked `-` is refused on that platform, never ignored. `written`, `net` and `files` are counted by Brevi's own code, so they also need `--sandbox` without `--allow native` or `--allow-py`. `threads` also needs a pids cgroup Brevi can create. Source of truth: `LIMIT_PLATFORMS` in `src/proc.rs`; `tools/limits_check.py` checks this table. The table shows `main`: Windows `cpu` is from v0.28.3 (v0.28.2 and earlier refuse it).
 
 | Limit | Linux | macOS | Windows |
 | --- | --- | --- | --- |
@@ -52,4 +52,6 @@ Under `--sandbox` (and in the MCP tools by default) nothing runs in CPython unle
 | `--standalone` | yes | no | yes |
 | Landlock holding CPython to file grants | Linux 5.13+ | no | no |
 | seccomp holding CPython to no network without a grant (from v0.28.0; Linux arm64 too) | yes | no | no |
+| Sandboxed CPython where a lock is missing (from v0.28.3; `--allow-unlocked-python` runs it with a warning on every start) | refused when it starts (kernel without Landlock or seccomp) | refused at build | refused at build |
+| seccomp keeping held CPython from other processes: ptrace, process_vm_readv/writev, pidfd_open/getfd, userfaultfd (from v0.28.3) | yes | no | no |
 | Resource limits | see the table above | see the table above | see the table above |

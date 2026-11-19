@@ -1272,6 +1272,7 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Ext(e) if e.tname() == "range" => tclass(15, "range"),
         V::Ext(e) if e.tname() == "typing.TypeVar" => ext_class_mod("typing", "TypeVar"),
         V::Ext(e) if e.any().is::<SigV>() => sig_class(),
+        V::Ext(e) if e.any().is::<ParamV>() => param_class(),
         V::Ext(e) if e.any().is::<TeeDataV>() => teedata_class(),
         V::Ext(e) => ext_class(e.tname()),
         V::Iter(it) => return iter_type_of(it),

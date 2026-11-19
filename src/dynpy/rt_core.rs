@@ -1715,6 +1715,7 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
             Some(h) => h,
             None if memview_of(v).is_some() => return memview_hash(v).unwrap(),
             None if x.any().is::<SigV>() => return Err(unsupported("hash() of an inspect.Signature")),
+            None if x.any().is::<ParamV>() => return Err(unsupported("hash() of an inspect.Parameter")),
             None if x.any().is::<RPat>() => return Err(unsupported("hash() of a re.Pattern (CPython hashes its compiled sre code)")),
             None => return type_err(format!("unhashable type: '{}'", x.tname())),
         },

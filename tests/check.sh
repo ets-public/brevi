@@ -981,6 +981,22 @@ for c in 'from unittest.mock import Mock\nclass D:\n    pass\nm = Mock(return_va
   o=$(BREVI_DYN=1 $BREVI run "$t/mk.py" 2>&1)
   case "$o" in "NotImplementedError: brevi: "*"${c#*|}"*) echo "ok   mock on a class stops: ${c#*|}" ;; *) echo "FAIL mock on a class does not stop: ${c#*|}"; printf '%s\n' "$o"; fail=1 ;; esac
 done
+# Brevi's own inspect has signature, Signature.parameters and Parameter (tests/dyn/inspect_signature.py has the
+# answers); constructing a Signature or a Parameter builds with CPython's inspect, whose signature cannot read the
+# program's defs (refused), and what a Parameter does not have stops the program.
+for c in 'from inspect import signature, Parameter\ndef f(a): pass\nprint(Parameter("a", Parameter.POSITIONAL_ONLY), signature(f))\n|inspect.signature' \
+         'import inspect\ndef f(a): pass\nprint(inspect.Signature([]), inspect.signature(f))\n|inspect.signature'; do
+  printf "${c%%|*}" > "$t/sg.py"
+  o=$(BREVI_DYN=1 $BREVI build "$t/sg.py" -o "$t/sg" 2>&1)
+  case "$o" in *"${c#*|}"*"needs CPython"*) echo "ok   inspect.Signature/Parameter construction refused at build" ;; *) echo "FAIL inspect.Signature/Parameter construction not refused at build"; printf '%s\n' "$o"; fail=1 ;; esac
+done
+for c in 'import inspect\ndef f(a): pass\nprint(inspect.signature(f).parameters["a"].replace(name="b"))\n|inspect.Parameter.replace' \
+         'import inspect\ndef f(a): pass\nprint(hash(inspect.signature(f).parameters["a"]))\n|hash() of an inspect.Parameter' \
+         'import inspect\nclass K:\n    pass\nprint(inspect.signature(K))\n|of a '"'"'type'"'"' object'; do
+  printf "${c%%|*}" > "$t/sg.py"
+  o=$(BREVI_DYN=1 $BREVI run "$t/sg.py" 2>&1)
+  case "$o" in *"NotImplementedError: brevi: "*"${c#*|}"*) echo "ok   inspect.signature stops: ${c#*|}" ;; *) echo "FAIL inspect.signature does not stop: ${c#*|}"; printf '%s\n' "$o"; fail=1 ;; esac
+done
 # locals() in an Enum's body is enum.EnumDict, whose writes check names (a member set twice is a TypeError); Brevi's
 # namespace is a plain dict, so a class that may be an Enum and calls locals() is refused when it builds.
 printf 'import enum\nclass E(enum.Enum):\n    A = 1\n    locals().update({"B": 2}, **{"A": 3})\nprint(list(E))\n' > "$t/el.py"
@@ -1184,6 +1200,15 @@ t=$(mktemp -d); cp -r tests/bridge/brlib tests/bridge/lib_values.py "$t"; sed -i
 out=$(cd "$t" && $B run --sandbox lib_values.py 2>&1; echo "exit $?")
 if printf '%s\n' "$out" | grep -q 'grants nothing under --sandbox' && printf '%s\n' "$out" | grep -qx 'exit 1'; then echo "ok   sandbox ignores # allow native"; else echo "FAIL sandbox ignores # allow native"; printf '%s\n' "$out"; fail=1; fi
 rm -rf "$t"
+# --allow-unlocked-python: on Linux, where the kernel locks CPython, it changes nothing: same output, no warning
+# (off Linux the build is refused without it, pybridge.rs lock_refusal; the PC's Windows checks cover that side).
+out=$(cd tests/bridge && $B run --sandbox --allow-py brlib --allow-unlocked-python lib_values.py 2>&1; echo "exit $?")
+if [ "$(printf '%s\n' "$out" | grep -v '^{"path"')" = "$want" ]; then echo "ok   sandbox bridge --allow-unlocked-python on Linux"; else echo "FAIL sandbox bridge --allow-unlocked-python on Linux"; printf '%s\n' "$out"; fail=1; fi
+# build (and check, emit, test, fix) take it too: the unknown-option check must know it (run --verify builds with it).
+t=$(mktemp -d)
+out=$(cd tests/bridge && $B build --sandbox --allow-py brlib --allow-unlocked-python lib_values.py -o "$t/lv" 2>&1 && "$t/lv" 2>&1; echo "exit $?")
+if [ "$(printf '%s\n' "$out" | grep -v '^{"path"')" = "$want" ]; then echo "ok   sandbox bridge build --allow-unlocked-python"; else echo "FAIL sandbox bridge build --allow-unlocked-python"; printf '%s\n' "$out"; fail=1; fi
+rm -rf "$t"
 #== standalone split
 # brevi build --standalone: a program calling Python libraries carries its own CPython. Run without python3 on
 # PATH and, where user namespaces allow it, in an empty root holding only the C library.
@@ -1227,12 +1252,33 @@ done
 # misspelt --sandbox) unless it follows --, a byte order mark may start a file, a `#` in an f-string's format spec
 # is no comment, and an uncaught error on the typed build names its class.
 for d in 0 1; do
-  for c in "a b|a b" "a --native b|a --native b" "a -- --x|a -- --x" "-- --x a|--x a" "--fast a b|a b" "a b -- c|a b -- c"; do
+  for c in "a b|a b" "a --native b|a --native b" "a -- --x|a -- --x" "-- --x a|--x a" "--fast a b|a b" "a b -- c|a b -- c" "-- --fast --sandbox a|--fast --sandbox a"; do
     out=$(BREVI_DYN=$d $BREVI run tests/cli/argv.py --native ${c%%|*} 2>&1); want=$("${BREVI_PYTHON:-python3}" tests/cli/argv.py ${c#*|})
     if [ "$out" = "$want" ]; then echo "ok   cli args ($d: ${c%%|*})"; else echo "FAIL cli args ($d: ${c%%|*})"; echo "want $want"; echo "got  $out"; fail=1; fi
   done
   out=$(BREVI_DYN=$d $BREVI run tests/cli/argv.py --native --sandbx 2>&1; echo "exit $?")
   if printf '%s\n' "$out" | grep -q 'no option --sandbx' && printf '%s\n' "$out" | grep -qx 'exit 2'; then echo "ok   cli unknown option refused ($d)"; else echo "FAIL cli unknown option refused ($d)"; printf '%s\n' "$out"; fail=1; fi
+  # Every command refuses an option it does not have, before or after FILE (a misspelt --sandbox built an
+  # unsandboxed binary and exited 0), and no output is written.
+  t=$(mktemp -d)
+  for c in "build tests/cli/argv.py --sandbx -o $t/x|brevi build has no option --sandbx (did you mean --sandbox?)" \
+           "build --sandbx tests/cli/argv.py -o $t/x|brevi build has no option --sandbx" \
+           "check tests/cli/argv.py --nope|brevi check has no option --nope" \
+           "emit tests/cli/argv.py --relase|brevi emit has no option --relase (did you mean --release?)" \
+           "fix tests/cli/argv.py -q|brevi fix has no option -q" \
+           "test tests/cli/argv.py --nocapture|put it after -- (brevi test FILE -- --nocapture)" \
+           "run --sandbx tests/cli/argv.py|brevi run has no option --sandbx" \
+           "build tests/cli/argv.py -o=$t/x|brevi build has no option -o=" \
+           "build tests/cli/argv.py --verify -o $t/x|brevi build has no option --verify" \
+           "run tests/cli/argv.py --timeout 5|--timeout is an option of brevi run --verify" \
+           "biuld tests/cli/argv.py|brevi has no command biuld"; do
+    out=$(BREVI_DYN=$d $BREVI ${c%%|*} --native 2>&1; echo "exit $?")
+    if printf '%s\n' "$out" | grep -qF -- "${c#*|}" && printf '%s\n' "$out" | grep -qx 'exit 2' && [ ! -e "$t/x" ]; then echo "ok   cli unknown option refused ($d: ${c%%|*})"; else echo "FAIL cli unknown option refused ($d: ${c%%|*})"; printf '%s\n' "$out"; fail=1; fi
+  done
+  out=$(BREVI_DYN=$d $BREVI build tests/cli/argv.py --native --allow=read --limit-free 2>&1; echo "exit $?")
+  printf '%s\n' "$out" | grep -qF 'no option --limit-free' || { echo "FAIL cli option after an = form ($d)"; printf '%s\n' "$out"; fail=1; }
+  if BREVI_DYN=$d $BREVI build tests/cli/argv.py --native --allow=read -o "$t/x" >/dev/null 2>&1 && [ -x "$t/x" ]; then echo "ok   cli --allow=VALUE taken ($d)"; else echo "FAIL cli --allow=VALUE taken ($d)"; fail=1; fi
+  rm -rf "$t"
   for f in fstring_spec bom; do
     out=$(BREVI_DYN=$d $BREVI run tests/cli/$f.py --native 2>&1); want=$("${BREVI_PYTHON:-python3}" tests/cli/$f.py 2>&1)
     if [ "$out" = "$want" ]; then echo "ok   cli $f ($d)"; else echo "FAIL cli $f ($d)"; printf '%s\n' "$want" | diff - "$(printf '%s\n' "$out" > /tmp/brevi_cli_$$; echo /tmp/brevi_cli_$$)"; fail=1; fi
@@ -1259,6 +1305,28 @@ while [ $i -lt 400 ]; do mkdir -p "$t/differs/r$i"; printf '{"file":"x.py","on":
 BREVI_CACHE="$t" $BREVI report 2>"$t/err" | head -1 >/dev/null
 if [ ! -s "$t/err" ]; then echo "ok   cli report into a closed pipe"; else echo "FAIL cli report into a closed pipe"; cat "$t/err"; fail=1; fi
 rm -rf "$t"
+#== cargo_home
+# Crate builds run cargo, and cargo runs what its home and any .cargo/config.toml above its folder name (a rustc
+# wrapper here). So a cargo home other users can change is not used (a private one stands in), and cargo never
+# runs in the caller's folder, where another user of a shared /workspace or /tmp could leave a .cargo/config.toml.
+# The control run shows the planted wrapper would run otherwise.
+tk=$(mktemp -d); chmod 755 "$tk"; cp tests/run/crate_use.bv "$tk/p.bv"; tkb=$(realpath "$BREVI")
+printf '#!/bin/sh\ntouch "%s/planted"\nexec "$@"\n' "$tk" > "$tk/wrap"; chmod 755 "$tk/wrap"
+for d in own shared cwd/.cargo; do mkdir -p "$tk/$d"; printf '[build]\nrustc-wrapper = "%s/wrap"\n' "$tk" > "$tk/$d/config.toml"; done
+chmod 777 "$tk/shared"; chmod 1777 "$tk/cwd"; mkdir "$tk/cwd/sub"
+tkr() { rm -f "$tk/planted"; h=$1; shift; (cd "$tk/${1:-.}" && env CARGO_HOME="$tk/$h" BREVI_CACHE="$tk/cache-$h${1:+-cwd}" "$tkb" run "$tk/p.bv" 2>&1 | sed 's/^brevi: not using the cargo home .*: .* can be changed by other users.*/refused shared home/'); [ -e "$tk/planted" ] && echo planted; }
+tkown=$(tkr own)
+tkout="$tkown / $(tkr shared) / $(mkdir -p "$tk/home2"; tkr home2 cwd/sub)"
+want='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+planted / refused shared home
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad / ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+# The test fetches a crate. With no route to crates.io (an offline sandbox) the control run itself cannot build:
+# that is SKIP, never ok, and only when the control run's own error is a network/offline one.
+if [ "$tkout" = "$want" ]; then echo "ok   cargo home trust: a shared home or a planted .cargo/config.toml is not used"
+elif ! printf '%s\n' "$tkown" | grep -q '^ba7816bf' && printf '%s\n' "$tkown" | grep -Eqi "offline mode|could not resolve host|couldn't resolve|failed to download|spurious network error|failed to query replaced source|network failure|failed to get .* as a dependency"; then
+  echo "SKIP cargo home trust: crates.io cannot be reached here"; printf '%s\n' "$tkown" | tail -3
+else echo "FAIL cargo home trust"; printf '%s\n' "$tkout"; fail=1; fi
+chmod -R u+rwX "$tk"; rm -rf "$tk"
 #== cache
 # The result cache: an unchanged program is replayed (path report line included), a changed module is built
 # again, and --no-cache always builds.
@@ -1293,6 +1361,48 @@ if command -v strace >/dev/null 2>&1; then
   else echo "ok   result cache hit starts no rustc"; fi
   rm -rf "$t4"
 else echo "skip result cache hit starts no rustc (no strace)"; fi
+# The cache is trusted: a replay runs the binary it holds. So no folder grant may reach it (a sandboxed program
+# granted write there could plant a binary a later run executes with no hold), and a cache other users can change
+# is not used at all: a private one stands in. The control run shows a planted binary would run otherwise.
+tc=$(mktemp -d); printf 'print(6 * 7)\n' > "$tc/main.py"; mkdir "$tc/out"
+cc() { env BREVI_CACHE="$tc/cache" $BREVI "$@" "$tc/main.py" 2>&1; echo "exit $?"; }
+tcout=$(cc run >/dev/null
+  for b in "$tc"/cache/runs/*/bin; do printf '#!/bin/sh\necho planted\n' > "$b"; done
+  echo "-- control"; cc run
+  echo "-- grant holding the cache"; cc run --sandbox --allow-write "$tc" | sed -n 's/.*the folder holds Brevi.s build cache.*/holds the cache/p; /^exit/p'
+  echo "-- grant inside the cache"; cc run --sandbox --allow-write "$tc/cache/runs" | sed -n 's/.*the folder is inside Brevi.s build cache.*/inside the cache/p; /^exit/p'
+  echo "-- grant beside it"; cc run --sandbox --allow-write "$tc/out" | grep -v planted
+  echo "-- shared"; chmod 777 "$tc/cache/runs"; cc run | sed 's/ [^ ]*brevi-[0-9]*\/cache / PRIVATE /; s/build cache [^:]*:/build cache CACHE:/; s/: [^ ]*\/runs can/: RUNS can/')
+tcwant='-- control
+planted
+exit 0
+-- grant holding the cache
+holds the cache
+exit 2
+-- grant inside the cache
+inside the cache
+exit 2
+-- grant beside it
+42
+exit 0
+-- shared
+brevi: not using the build cache CACHE: RUNS can be changed by other users (mode 777); using PRIVATE instead (set BREVI_CACHE to a folder only you can write)
+42
+exit 0'
+if [ "$tcout" = "$tcwant" ]; then echo "ok   cache trust: no grant reaches it, a shared one is not used"
+else echo "FAIL cache trust"; printf '%s\n' "$tcwant" > "$tc/want"; printf '%s\n' "$tcout" | diff "$tc/want" -; fail=1; fi
+chmod -R u+rwX "$tc"; rm -rf "$tc"
+# BREVI_CACHE_SEED: a read-only folder of runtime libraries built ahead (the sandbox image's, made as root). A
+# fresh cache links the seed's library instead of building its own, unless others could change the seed.
+ts=$(mktemp -d); chmod 755 "$ts"; printf 'print(sum([1, 2, 3]))\n' > "$ts/main.py"
+tsr() { env BREVI_CACHE="$ts/$1" BREVI_CACHE_SEED="$ts/seed" BREVI_TIERED=0 $BREVI run --native "$ts/main.py" 2>&1; }
+env BREVI_CACHE="$ts/seed" BREVI_TIERED=0 $BREVI run --native "$ts/main.py" >/dev/null 2>&1; chmod -R go-w "$ts/seed"
+tsout="$(tsr own) $(ls "$ts/own" | grep -c '^rt$')"
+chmod o+w "$ts/seed/rt"
+tsout="$tsout / $(tsr own2) $(ls "$ts/own2" | grep -c '^rt$')"
+if [ "$tsout" = "6 0 / 6 1" ]; then echo "ok   cache seed: used when only its owner can change it"
+else echo "FAIL cache seed: $tsout (want 6 0 / 6 1)"; fail=1; fi
+rm -rf "$ts"
 # Tiered builds (src/tier.rs): run after an edit builds at opt-level 0 and builds opt-level 1 in the background;
 # the next run of the unchanged file gets the opt-level 1 binary. build, --release and BREVI_TIERED=0 never tier.
 t3=$(mktemp -d)

@@ -37,10 +37,18 @@ Notes:
 
 Newest first. Only changes that can affect programs or setups that already work.
 
-### Next release
+### v0.28.3
 
-These are on `main` now and ship with the next release.
+These changed in v0.28.3 (19 Nov 2026).
 
+- **Unknown options are refused.** `brevi build`, `check`, `emit`, `test` and `fix` exit 2 on an option they do not have (before, `--sandbx` was dropped and the build ran unsandboxed), naming the nearest real one. Words after `--` go to the program.
+- **Imports hidden on a line are refused under `--sandbox`.** An import after `;`, after a one-line `if`/`def`, or split with `\` must move to a line of its own (or the caller grants `--allow native`). Programs can no longer import Brevi's internal `_brevi_*` modules.
+- **`--allow-write` over Brevi's caches is refused.** A write grant (and MCP `allow_write`) over a folder that holds or lies inside the build cache, Brevi's temp folder or `BREVI_PY_CACHE` is refused, so `--allow-write ~` or `--allow-write /tmp` fails where those hold them: grant a narrower folder. A cache another user owns or can write is not used; Brevi says so and uses a private one.
+- **Crate builds use only a cargo home you own.** `CARGO_HOME` (else `~/.cargo`) is used only if root or you own it and nothing directly in it is writable by others; otherwise Brevi says so and uses a private one (crates are fetched again). cargo no longer reads a `.cargo/config.toml` from the folder you build in. The sandbox image no longer sets `CARGO_HOME`.
+- **Held CPython cannot reach other processes (Linux).** Under `--sandbox` with `--allow-py` or `--allow native`, `ptrace`, `process_vm_readv/writev`, `pidfd_open`, `pidfd_getfd` and `userfaultfd` fail with `PermissionError`, and a kernel that refuses the filter refuses the program even with the network granted.
+- **Crate lines are checked.** A version must be a Cargo version requirement and features Cargo feature names, and under `--sandbox` every crate needs a version: add `use NAME "VERSION"` for a crate the rust code names without one.
+- **`brevi mcp --http` without a token answers only local Host names** (localhost, 127.0.0.1, [::1]). A tunnel that forwards to 127.0.0.1 with its own host name (cloudflared does by default) needs `--allow-host NAME`, or better a token. With a token, five wrong tokens in a row from one address get 429 for a growing wait (up to 60 s).
+- **Sandboxed CPython is refused where the kernel cannot lock it.** Under `--sandbox` with `--allow-py` or `--allow native`, a program that runs CPython is refused on macOS and Windows at build time, and at start on a Linux kernel without Landlock (or without seccomp, or on an architecture other than x86-64 and arm64, when no network is granted). Before, CPython there kept full file access when no folders were named, and the network on macOS and Windows. Grant `--allow read,write` and `--allow net` if CPython should have them, or pass `--allow-unlocked-python` (`brevi mcp --allow-unlocked-python` for a server) to build it anyway: it then warns on every start.
 - **`--limit cpu` works on Windows**, held by a Job Object and a watch thread over user and kernel time. `file`, `fds` and `threads` stay refused there.
 - **`BREVI_DYN=0` keeps the wrong-answer guard.** A file the guard sends to the dynamic build is refused instead of built typed.
 - **Pickle and copy refusals stop the program** instead of raising an exception a `try` could catch. Pickles of the program's own classes, int and tuple subclasses and namedtuples now have CPython's exact bytes, and `copy` honours a class's `__reduce__`, `__getstate__` and `__setstate__` (they were skipped before).
