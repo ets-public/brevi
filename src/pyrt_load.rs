@@ -699,9 +699,7 @@ fn ax_pyb_holds(lib: &str, home: &str, path: &[String]) -> Result<(), String> {
         return Ok(());
     }
     ax_pyb_one_thread()?;
-    if AX_PYB_NET != 0 {
-        ax_pyb_nonet(AX_PYB_NET)?;
-    }
+    ax_pyb_seccomp(AX_PYB_NET)?;
     if let Some(h) = AX_PYB_HOLD {
         ax_pyb_hold(h, lib, home, path)?;
     }
@@ -739,20 +737,26 @@ fn ax_pyb_one_thread() -> Result<(), String> {
     Ok(())
 }
 
-// Under --sandbox without a network grant, CPython (and the C extensions and processes it starts) must reach no
-// network: before CPython starts, a seccomp filter makes socket() and io_uring_setup() fail with EACCES (a
-// PermissionError in Python) for the whole program and everything it starts, and it cannot be lifted.
-// socketpair() stays (asyncio's and multiprocessing's own pipes reach nothing outside). A Unix socket by path
-// (a Docker or database daemon) needs socket() too, so it is held as well. Calls of another architecture's
-// table (x32, or 32-bit int 0x80 on x86-64) fail for every system call. With hosts named (--allow-net HOST)
-// the kernel cannot hold CPython to them, so that is refused on every OS. On Linux a kernel that refuses the
-// filter means the program is refused; other systems have no such filter and CPython keeps the network there.
-fn ax_pyb_nonet(mode: u8) -> Result<(), String> {
-    if mode == 2 {
+// Under --sandbox, before CPython starts, a seccomp filter holds CPython (and the C extensions and processes it
+// starts) for the whole program, and it cannot be lifted:
+// - Always: ptrace, process_vm_readv, process_vm_writev, pidfd_open, pidfd_getfd and userfaultfd fail with EPERM
+//   (a PermissionError in Python). Held CPython reaches no other process's memory or files through them (a
+//   process of the same user that Yama lets it trace would carry none of the holds), and userfaultfd, a common
+//   help in kernel exploits, is gone. Landlock (the file holds) already keeps ptrace inside the program; this
+//   holds it when files are granted in full too.
+// - Without a network grant: socket() and io_uring_setup() fail with EACCES, so CPython reaches no network.
+//   socketpair() stays (asyncio's and multiprocessing's own pipes reach nothing outside). A Unix socket by path
+//   (a Docker or database daemon) needs socket() too, so it is held as well.
+// Calls of another architecture's table (x32, or 32-bit int 0x80 on x86-64) fail for every system call. With
+// hosts named (--allow-net HOST) the kernel cannot hold CPython to them, so that is refused on every OS. On Linux
+// a kernel that refuses the filter means the program is refused; other systems have no such filter and CPython
+// keeps the network and these calls there.
+fn ax_pyb_seccomp(net: u8) -> Result<(), String> {
+    if net == 2 {
         return Err("brevi: --sandbox: CPython (--allow-py or --allow native) cannot be held to the hosts named with --allow-net: the kernel can hold it to no network, or allow it every host; grant --allow net, or leave out --allow-net".into());
     }
-    // Elsewhere (macOS, Windows) CPython keeps the network, as THREAT_MODEL.md says: --allow-py and --allow
-    // native are full trust there.
+    // Elsewhere (macOS, Windows) CPython keeps them, as THREAT_MODEL.md says: --allow-py and --allow native are
+    // full trust there.
     #[cfg(not(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64"))))]
     {
         return Ok(());
@@ -781,30 +785,44 @@ fn ax_pyb_nonet(mode: u8) -> Result<(), String> {
         const JGE_K: u16 = 0x35;
         const RET_K: u16 = 0x06;
         const ALLOW: u32 = 0x7fff_0000;
+        const EPERM: u32 = 0x0005_0000 | 1;
         const EACCES: u32 = 0x0005_0000 | 13;
-        // AUDIT_ARCH_*, and the numbers of socket, io_uring_setup and seccomp
+        // AUDIT_ARCH_*, seccomp, [ptrace, process_vm_readv, process_vm_writev, pidfd_open, pidfd_getfd,
+        // userfaultfd], [socket, io_uring_setup]
         #[cfg(target_arch = "x86_64")]
-        const T: (u32, u32, u32, c_long) = (0xc000_003e, 41, 425, 317);
+        const T: (u32, c_long, [u32; 6], [u32; 2]) = (0xc000_003e, 317, [101, 310, 311, 434, 438, 323], [41, 425]);
         #[cfg(target_arch = "aarch64")]
-        const T: (u32, u32, u32, c_long) = (0xc000_00b7, 198, 425, 277);
-        let (arch, socket, uring, seccomp) = T;
+        const T: (u32, c_long, [u32; 6], [u32; 2]) = (0xc000_00b7, 277, [117, 270, 271, 434, 438, 282], [198, 425]);
+        let (arch, seccomp, procs, nets) = T;
         let i = |code: u16, jt: u8, jf: u8, k: u32| Insn { code, jt, jf, k };
-        let f = [
-            i(LD_W_ABS, 0, 0, 4),     // arch
-            i(JEQ_K, 1, 0, arch),     // ours: go on
-            i(RET_K, 0, 0, EACCES),   // another table: nothing
-            i(LD_W_ABS, 0, 0, 0),     // nr
-            i(JGE_K, 3, 0, 0x4000_0000), // x32 numbers: nothing
-            i(JEQ_K, 2, 0, socket),
-            i(JEQ_K, 1, 0, uring),
-            i(RET_K, 0, 0, ALLOW),
+        let mut f = vec![
+            i(LD_W_ABS, 0, 0, 4),        // arch
+            i(JEQ_K, 1, 0, arch),        // ours: go on
+            i(RET_K, 0, 0, EACCES),      // another table: nothing
+            i(LD_W_ABS, 0, 0, 0),        // nr
+            i(JGE_K, 0, 1, 0x4000_0000), // x32 numbers: nothing
             i(RET_K, 0, 0, EACCES),
         ];
+        // Each held call: a match returns its error, anything else skips that return.
+        let mut deny = |nr: u32, err: u32| {
+            f.push(i(JEQ_K, 0, 1, nr));
+            f.push(i(RET_K, 0, 0, err));
+        };
+        for nr in procs {
+            deny(nr, EPERM);
+        }
+        if net == 1 {
+            for nr in nets {
+                deny(nr, EACCES);
+            }
+        }
+        f.push(i(RET_K, 0, 0, ALLOW));
         let prog = Prog { len: f.len() as u16, filter: f.as_ptr() };
         // PR_SET_NO_NEW_PRIVS, then seccomp(SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC): every thread.
         let held = unsafe { prctl(38, 1u64, 0u64, 0u64, 0u64) } == 0 && unsafe { syscall(seccomp, 1 as c_long, 1 as c_long, &prog as *const Prog) } == 0;
         if !held {
-            return Err(format!("brevi: --sandbox: CPython without a network grant is held to no network by the kernel (seccomp), which refused ({}); grant --allow net to run it here", std::io::Error::last_os_error()));
+            let what = if net == 1 { "to no network and no other process" } else { "to no other process" };
+            return Err(format!("brevi: --sandbox: CPython is held {what} by the kernel (seccomp), which refused ({}); run it without --sandbox here", std::io::Error::last_os_error()));
         }
         Ok(())
     }

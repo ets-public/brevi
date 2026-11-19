@@ -531,7 +531,7 @@ fn install_zig(dir: &Path, (url, sha): (&str, &str)) -> Result<(), String> {
 // `brevi toolchain`: fetches whatever builds here still need (as the first build would), then prints one JSON
 // line saying which rustc and linker builds use. For an install script, a Docker layer, or a check.
 pub(crate) fn main(argv: &[String]) -> ! {
-    if let Some(o) = argv.first().filter(|a| *a != "install") {
+    if let Some(o) = argv.first().filter(|a| *a != "install").or(argv.get(1)) {
         eprintln!("usage: brevi toolchain [install] (not {o})");
         std::process::exit(2)
     }
