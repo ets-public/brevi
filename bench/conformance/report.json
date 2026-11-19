@@ -1,6 +1,6 @@
 {
 "brevi": "brevi 0.28.3",
-"commit": "bf733ef55845",
+"commit": "68e2f2682ed2",
 "python": "3.13.13",
 "tag": "v3.13.13",
 "date": "2026-11-19",
@@ -2442,7 +2442,7 @@
 "modes": {
 "normal": {
 "category": "by_design",
-"detail": "expected ')', found \"1_00\""
+"detail": "a bytes literal b\"...\" is not supported in the typed build"
 },
 "dyn": {
 "category": "by_design",
