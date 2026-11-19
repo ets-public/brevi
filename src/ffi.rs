@@ -78,6 +78,70 @@ fn parse_use(l: &str, line: usize) -> Option<Dep> {
     Some(Dep { name: name.to_string(), version, features, line })
 }
 
+// A crate line's version is a Cargo version requirement (`1`, `0.10`, `=1.2.3`, `>=1, <2`, `1.0.0-rc.1`) and its
+// features are Cargo feature names (`std`, `serde/derive`), so nothing else reaches Cargo.toml. Under --sandbox
+// every crate needs a version, since `*` would build whatever crates.io serves on the day.
+pub fn dep_errors(deps: &[Dep], sandbox: bool) -> Vec<(usize, String, String)> {
+    let mut errs = vec![];
+    for d in deps {
+        let at = if d.line == 0 { format!("{}, which the rust code names,", d.name) } else { format!("crate {}", d.name) };
+        if !version_req_ok(&d.version) {
+            errs.push((d.line, format!("{at} has version \"{}\", which is not a Cargo version requirement", d.version), format!("write a version such as use {} \"1.0\"", d.name)));
+        } else if sandbox && d.version.trim() == "*" {
+            errs.push((d.line, format!("{at} has no version, which --sandbox refuses (any version crates.io serves would be built)"), format!("pin it: use {} \"VERSION\"", d.name)));
+        }
+        for f in &d.features {
+            if f != "-default" && !feature_ok(f) {
+                errs.push((d.line, format!("crate {} has feature \"{f}\", which is not a Cargo feature name", d.name), "features are letters, digits, _ - + . and one / (dep/feature)".into()));
+            }
+        }
+    }
+    errs
+}
+
+fn version_req_ok(v: &str) -> bool {
+    let v = v.trim();
+    if v == "*" {
+        return true;
+    }
+    !v.is_empty()
+        && v.split(',').all(|c| {
+            let c = c.trim();
+            let c = [">=", "<=", "=", ">", "<", "~", "^"].iter().find_map(|op| c.strip_prefix(op)).unwrap_or(c).trim_start();
+            let (core, rest) = c.find(|ch| ch == '-' || ch == '+').map_or((c, ""), |i| (&c[..i], &c[i..]));
+            let parts: Vec<&str> = core.split('.').collect();
+            let mut wild = false;
+            let parts_ok = !parts.is_empty()
+                && parts.len() <= 3
+                && parts.iter().enumerate().all(|(i, p)| {
+                    if matches!(*p, "*" | "x" | "X") {
+                        wild = true;
+                        return i > 0 || parts.len() == 1;
+                    }
+                    !wild && !p.is_empty() && p.len() <= 20 && p.bytes().all(|b| b.is_ascii_digit()) && (p.len() == 1 || !p.starts_with('0'))
+                });
+            // `-pre.release` and `+build` only after a full x.y.z
+            let tail_ok = rest.is_empty()
+                || (parts.len() == 3 && !wild && {
+                    let (pre, build) = match rest.strip_prefix('-') {
+                        Some(r) => r.split_once('+').map_or((Some(r), None), |(a, b)| (Some(a), Some(b))),
+                        None => (None, rest.strip_prefix('+')),
+                    };
+                    let ids_ok = |s: &str| s.split('.').all(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'));
+                    pre.map_or(true, ids_ok) && build.map_or(true, ids_ok)
+                });
+            parts_ok && tail_ok
+        })
+}
+
+fn feature_ok(f: &str) -> bool {
+    let part = |s: &str| s.len() <= 64 && s.bytes().next().is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_') && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'+' | b'.'));
+    match f.split_once('/') {
+        Some((a, b)) => part(a) && part(b),
+        None => part(f),
+    }
+}
+
 // Splits `rust fn sig:` / `rust fn sig = expr` into (sig, Some(one-line body)) where sig ends after the return type.
 fn split_sig(rest: &str) -> Option<(String, Option<String>)> {
     let open = rest.find('(')?;
@@ -525,3 +589,43 @@ pub fn ax_py(f: usize, args: Vec<Json>) -> R<Json> {
     }
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dep(line: &str) -> Dep {
+        parse_use(line, 1).expect(line)
+    }
+
+    #[test]
+    fn crate_versions_and_features() {
+        for v in ["1", "0.10", "1.2.3", "=1.2.3", "^0.4", "~1.2", ">=1, <2", "1.*", "1.2.x", "1.0.0-rc.1", "1.0.0+build.5", "1.0.0-alpha+001", "*"] {
+            assert!(version_req_ok(v), "{v}");
+        }
+        for v in ["", "latest", "1.0\\", "1..0", "01.2", "1.2.3.4", "*.1", "1.*.3", "1.0-rc", "1.0.0-", "1.0.0-a..b", "1.0 }", "git = x", ">=", "1,", "1\t2"] {
+            assert!(!version_req_ok(v), "{v}");
+        }
+        for f in ["std", "serde/derive", "rustls-tls", "v1.2", "_x", "a+b"] {
+            assert!(feature_ok(f), "{f}");
+        }
+        for f in ["", "-x", "a/b/c", "dep:x", "a\\b", "x]", "/x"] {
+            assert!(!feature_ok(f), "{f}");
+        }
+    }
+
+    #[test]
+    fn crate_lines_checked() {
+        assert!(dep_errors(&[dep("use sha2 \"0.10\" \"std oid\""), dep("use rand \"0.9\" \"-default\"")], true).is_empty());
+        // no version: allowed outside the sandbox, refused in it
+        let bare = dep("use sha2");
+        assert_eq!(bare.version, "*");
+        assert!(dep_errors(&[bare.clone()], false).is_empty());
+        assert!(dep_errors(&[bare], true)[0].1.contains("--sandbox"));
+        assert!(!dep_errors(&[dep("use sha2 \"*\"")], true).is_empty());
+        let named = Dep { name: "rand".into(), version: "*".into(), features: vec![], line: 0 };
+        assert!(dep_errors(&[named], true)[0].1.starts_with("rand, which the rust code names,"));
+        assert_eq!(dep_errors(&[dep("use sha2 \"0.10\\\\\"")], false).len(), 1);
+        assert_eq!(dep_errors(&[dep("use sha2 \"0.10\" \"std a\\\\b\"")], false).len(), 1);
+    }
+}

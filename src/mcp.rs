@@ -292,7 +292,7 @@ fn cfg() -> &'static Cfg {
     CFG.get().expect("config")
 }
 
-const SERVE_USAGE: &str = "usage: brevi mcp [--timeout SECONDS] [--mem-mb MB (0: no limit)] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--trust-calls] [--allow-unlocked-python] [--http [HOST:]PORT [--token TOKEN] [--path /mcp] [--allow-origin ORIGIN]]";
+const SERVE_USAGE: &str = "usage: brevi mcp [--timeout SECONDS] [--mem-mb MB (0: no limit)] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--trust-calls] [--allow-unlocked-python] [--http [HOST:]PORT [--token TOKEN] [--path /mcp] [--allow-origin ORIGIN] [--allow-host HOST]]";
 
 // The flags that set the server's policy, as mcp_http.rs passes them on: (flag, takes a value).
 pub(crate) const POLICY_FLAGS: &[(&str, bool)] = &[("--allow", true), ("--allow-py", true), ("--allow-net", true), ("--allow-read", true), ("--allow-write", true), ("--trust-calls", false), ("--allow-unlocked-python", false)];
