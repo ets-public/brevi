@@ -102,7 +102,7 @@ def home_jsonld(version):
     return [{
         "@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Brevi",
         "url": "https://brevi-lang.org/", "image": "https://brevi-lang.org/social.png",
-        "description": "A compiler that builds the Python an AI coding agent writes into a fast, memory-safe native binary through Rust, with the same output as CPython.",
+        "description": "A compiler that builds the Python an AI coding agent writes into a fast-starting native binary through Rust, checked against CPython's output.",
         "applicationCategory": "DeveloperApplication", "applicationSubCategory": "Compiler",
         "operatingSystem": "Linux, macOS, Windows", "softwareVersion": version,
         "license": "https://www.apache.org/licenses/LICENSE-2.0",

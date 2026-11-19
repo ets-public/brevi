@@ -19,7 +19,7 @@ h1{font:500 70px/1.08 Sans;margin:0;max-width:980px;letter-spacing:-0.03em}
   const b = await chromium.launch();
   const p = await b.newPage({ viewport: { width: 1200, height: 630 } });
   for (const [file, html] of [
-    ['social.png', card('Brevi', 'Run the Python your agent writes as a native binary', 'Plain Python in, a fast, memory-safe Rust binary out, with the same output as CPython. Free and open source.')],
+    ['social.png', card('Brevi', 'Run the Python your agent writes as a native binary', 'Plain Python in, one fast-starting native binary out, checked against CPython. Free and open source.')],
     ['social-run.png', card('brevi.run', 'Hosted Brevi for AI agents', 'Compile, run and test Python as native binaries, with no toolchain on the agent’s machine. Coming soon.')],
   ]) {
     await p.setContent(html);
