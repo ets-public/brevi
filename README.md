@@ -9,7 +9,9 @@ $ brevi build server.py --release -o time-mcp     # build once
 $ claude mcp add time -- /full/path/to/time-mcp   # register it
 ```
 
-The official `mcp-server-time`, built unchanged this way, answers its first tool call in 35 ms where CPython 3.13 takes 730 ms, from one 19.2 MB file that links no libpython. A token counter built on tiktoken counts one file in 33 ms against CPython's 375 ms, from an 11.5 MB file (Brevi 0.26.0, Linux x86-64, Intel Xeon at 2.10 GHz with 4 cores, median of 10 runs; [Showcases](https://brevi-lang.org/docs/showcases)). The win is start-up and import time, not throughput: the dynamic build most servers take runs at about CPython's speed once started (median 0.85x on our compute benchmarks).
+The official `mcp-server-time` 2026.11.4, built unchanged this way, answered its first tool call in 35 ms where CPython 3.13 took 730 ms, from one 19.2 MB file that links no libpython. A token counter built on tiktoken counted one file in 33 ms against CPython's 375 ms, from an 11.5 MB file (Brevi 0.26.0, Linux x86-64, Intel Xeon at 2.10 GHz with 4 cores, median of 10 runs; [Showcases](https://brevi-lang.org/docs/showcases)). The win is start-up and import time, not throughput: the dynamic build most servers take runs at about CPython's speed once started (median 0.85x on our compute benchmarks).
+
+**Most real servers do not get that today.** Those figures are for the versions measured. The current `mcp-server-time` (2026.11.18) does not build natively yet, and in our first real-server test (19 November 2026) none of the 10 most downloaded MCP servers on PyPI built natively: they fall back to the CPython bridge, which needs Python's shared library on the run machine and loses the fast start. Making real servers build natively is the first item on the [roadmap](https://brevi-lang.org/docs/roadmap).
 
 Docs: **[Ship an MCP server or CLI](https://brevi-lang.org/docs/bundle-mcp)** · [brevi-lang.org/docs](https://brevi-lang.org/docs/) · Releases: [GitHub](https://github.com/ets-public/brevi/releases/latest) · Changes: [CHANGELOG.md](CHANGELOG.md)
 
@@ -19,7 +21,7 @@ Docs: **[Ship an MCP server or CLI](https://brevi-lang.org/docs/bundle-mcp)** ·
 - **Linux binaries link glibc**: build on the oldest Linux you target. No static build yet.
 - **macOS**: released, but programs built there are not yet tested in CI. **Windows** is a beta.
 - **Long-running servers**: a built program does not yet free some memory, such as reference cycles; watch the memory of a server that runs for days.
-- **Not every server builds natively yet.** When one does not, the build names the line that stopped it; the [roadmap](https://brevi-lang.org/docs/roadmap) says what is being fixed next.
+- **Most real servers do not build natively yet** (see above). When one does not, the build names the line that stopped it, or says which imports run in CPython.
 
 **Public preview.** Brevi works today and is tested against CPython on every change, but it is young: expect rough edges, and expect the CLI to change between releases. It is **not a drop-in `python3`**: on CPython's own tests some built programs still answer differently (see [Status](#status-v0283)), and `brevi run` quietly falls back to `python3` for files it cannot build (`--native` turns that off; `brevi build` never falls back). Bug reports are very welcome ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
