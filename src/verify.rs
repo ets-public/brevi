@@ -747,7 +747,7 @@ pub fn run_main(argv: &[String]) -> ! {
             "--traceback" | "--explain" => pass.push(a.into()),
             // Under the sandbox the run is checked against Brevi's dynamic build instead of CPython (which the
             // sandbox cannot hold): cross_main.
-            "--sandbox" => {
+            "--sandbox" | "--allow-unlocked-python" => {
                 held.push(a.into());
                 pass.push(a.into());
             }

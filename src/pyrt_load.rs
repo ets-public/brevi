@@ -544,16 +544,18 @@ pub type AxPybHold = Option<(Option<&'static [&'static str]>, Option<&'static [&
 // opens, so before CPython starts the kernel holds the whole process to the grants: Linux Landlock, which
 // needs no privileges and cannot be undone. Reads stay open to CPython's own files (its home, sys.path, shared
 // libraries) and the few system files the C library and TLS read; nothing else outside the granted folders can
-// be opened, made, renamed or removed. Without Landlock (another OS, an older kernel) a caller who named
-// folders is refused rather than given every folder; with no folders named, CPython keeps the full trust its
-// grant always meant.
+// be opened, made, renamed or removed. Without Landlock (another OS, an older kernel) the program is refused
+// rather than run CPython unlocked, unless it was built with --allow-unlocked-python: it then warns, on every
+// start, that CPython runs without the lock.
 fn ax_pyb_hold(h: (Option<&[&str]>, Option<&[&str]>, bool, Option<&[&str]>), lib: &str, home: &str, path: &[String]) -> Result<(), String> {
     let (read, write, scoped, local) = h;
+    let _ = scoped;
     let refuse = |why: String| -> Result<(), String> {
-        if scoped {
-            Err(format!("brevi: --sandbox: CPython is held to --allow-read / --allow-write folders by the kernel (Linux Landlock), and {why}; grant read and write to every folder, or run on Linux 5.13 or later"))
-        } else {
+        if AX_PYB_UNLOCKED {
+            eprintln!("brevi: warning: --sandbox: CPython runs with no file lock ({why}): it can open any file this user can (built with --allow-unlocked-python)");
             Ok(())
+        } else {
+            Err(format!("brevi: --sandbox: CPython is locked to the --allow-read / --allow-write grants by the kernel (Linux Landlock), and {why}; run on Linux 5.13 or later with Landlock on, grant --allow read,write, or build with --allow-unlocked-python to run it unlocked"))
         }
     };
     #[cfg(not(target_os = "linux"))]
@@ -749,17 +751,24 @@ fn ax_pyb_one_thread() -> Result<(), String> {
 //   (a Docker or database daemon) needs socket() too, so it is held as well.
 // Calls of another architecture's table (x32, or 32-bit int 0x80 on x86-64) fail for every system call. With
 // hosts named (--allow-net HOST) the kernel cannot hold CPython to them, so that is refused on every OS. On Linux
-// a kernel that refuses the filter means the program is refused; other systems have no such filter and CPython
-// keeps the network and these calls there.
+// a kernel that refuses the filter means the program is refused. Other systems have no such filter: without a
+// network grant the build is refused there (pybridge.rs lock_refusal), and a program built with
+// --allow-unlocked-python warns on every start instead. With the network granted CPython keeps these process
+// calls there, as THREAT_MODEL.md says: --allow-py and --allow native are full trust.
 fn ax_pyb_seccomp(net: u8) -> Result<(), String> {
     if net == 2 {
         return Err("brevi: --sandbox: CPython (--allow-py or --allow native) cannot be held to the hosts named with --allow-net: the kernel can hold it to no network, or allow it every host; grant --allow net, or leave out --allow-net".into());
     }
-    // Elsewhere (macOS, Windows) CPython keeps them, as THREAT_MODEL.md says: --allow-py and --allow native are
-    // full trust there.
     #[cfg(not(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64"))))]
     {
-        return Ok(());
+        if net == 0 {
+            return Ok(());
+        }
+        if AX_PYB_UNLOCKED {
+            eprintln!("brevi: warning: --sandbox: CPython runs with no network lock (only Linux x86-64 and arm64 have one): it can reach any host (built with --allow-unlocked-python)");
+            return Ok(());
+        }
+        return Err("brevi: --sandbox: CPython without a network grant is locked to no network by the kernel (Linux seccomp, on x86-64 and arm64), which this system does not have; grant --allow net, or build with --allow-unlocked-python to run it unlocked".into());
     }
     #[cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))]
     {
@@ -821,8 +830,14 @@ fn ax_pyb_seccomp(net: u8) -> Result<(), String> {
         // PR_SET_NO_NEW_PRIVS, then seccomp(SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC): every thread.
         let held = unsafe { prctl(38, 1u64, 0u64, 0u64, 0u64) } == 0 && unsafe { syscall(seccomp, 1 as c_long, 1 as c_long, &prog as *const Prog) } == 0;
         if !held {
-            let what = if net == 1 { "to no network and no other process" } else { "to no other process" };
-            return Err(format!("brevi: --sandbox: CPython is held {what} by the kernel (seccomp), which refused ({}); run it without --sandbox here", std::io::Error::last_os_error()));
+            let why = std::io::Error::last_os_error();
+            let (what, reach) = if net == 1 { ("no network lock and no process lock", "any host and other processes of this user") } else { ("no process lock", "other processes of this user") };
+            if AX_PYB_UNLOCKED {
+                eprintln!("brevi: warning: --sandbox: CPython runs with {what} (the kernel refused seccomp: {why}): it can reach {reach} (built with --allow-unlocked-python)");
+                return Ok(());
+            }
+            let held = if net == 1 { "to no network and no other process" } else { "to no other process" };
+            return Err(format!("brevi: --sandbox: CPython is held {held} by the kernel (seccomp), which refused ({why}); build with --allow-unlocked-python to run it unlocked, or run it without --sandbox here"));
         }
         Ok(())
     }
