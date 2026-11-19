@@ -107,6 +107,12 @@ pub fn blocked_noise(d: &crate::diag::Diag) -> bool {
 // The import lines of Python libraries CPython would run (not Brevi's built-in modules, not files of the
 // program): (line, module), for caps.rs.
 pub fn bridged_imports(src: &str) -> Vec<(usize, String)> {
+    line_imports(src).into_iter().filter(|(_, m)| ok_name(m) && bridged(m)).collect()
+}
+
+// Every import the line test reads, bridged or not: (line, module), for a line that starts (after spaces)
+// `import ` or `from `. caps.rs holds a held program to imports this sees (import_gaps).
+pub fn line_imports(src: &str) -> Vec<(usize, String)> {
     let mut out = vec![];
     for (i, l) in src.lines().enumerate() {
         let t = l.split(" #").next().unwrap_or("").trim();
@@ -117,11 +123,7 @@ pub fn bridged_imports(src: &str) -> Vec<(usize, String)> {
         } else {
             vec![]
         };
-        for m in mods {
-            if ok_name(m) && bridged(m) {
-                out.push((i + 1, m.to_string()));
-            }
-        }
+        out.extend(mods.into_iter().map(|m| (i + 1, m.to_string())));
     }
     out
 }

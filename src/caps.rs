@@ -1284,6 +1284,10 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
             uses.push((i + 1, "native", w.to_string()));
         }
     }
+    // Imports the line checks below cannot read (`import a; import b`, `if x: import b`, `import \\` b): native.
+    for (line, m) in import_gaps(src) {
+        uses.push((line, "native", format!("a hidden import of {m} (not at the start of a line of its own, where the sandbox's check reads imports)")));
+    }
     // os, os.path and pathlib are allowed for their path functions only (see path_uses).
     let paths = path_uses(src);
     for (line, m) in crate::pybridge::bridged_imports(src) {
@@ -1369,7 +1373,9 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
         }
         seen.push((line, cap));
         let add = grant_hint(cap, module.as_deref());
-        let fix = if what.starts_with("random.") {
+        let fix = if what.starts_with("a hidden import") {
+            format!("put the import at the start of a line of its own (`import M` or `from M import x`); {add}")
+        } else if what.starts_with("random.") {
             format!("Brevi's own random has {}; for the rest, {add}", OWN_RANDOM.join(", "))
         } else if what.starts_with("os") || what.starts_with("pathlib") || what.starts_with("from os") || what.starts_with("from pathlib") {
             format!("without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); {add}")
@@ -1444,6 +1450,70 @@ fn stmt(s: &Stmt, out: &mut Vec<(usize, &'static str, String)>) {
     }
 }
 
+// The imports of a program that the line checks (pybridge::line_imports, path_uses) do not read: every import
+// statement Python's grammar finds (the dynamic build's own parser, so what that build will load), each held to
+// a line of its own. A source that parser cannot read is held to the word: `import` anywhere in the code (not in
+// a string or comment) other than at the start of a line-test import line. (line, module or "import").
+pub fn import_gaps(src: &str) -> Vec<(usize, String)> {
+    let seen = crate::pybridge::line_imports(src);
+    let mut out = vec![];
+    match crate::dynpy::parse::parse(src) {
+        Ok(body) => {
+            let mut all = vec![];
+            ast_imports(&body, &mut all);
+            for (line, m) in all {
+                if !seen.iter().any(|(l, s)| *l == line && *s == m) {
+                    out.push((line, m));
+                }
+            }
+        }
+        Err(_) => {
+            let word = |c: char| c.is_alphanumeric() || c == '_';
+            for (n, l) in code_lines(src) {
+                let hits = l.match_indices("import").filter(|(i, _)| !l[..*i].ends_with(word) && !l[i + 6..].starts_with(word)).count();
+                if hits == 0 {
+                    continue;
+                }
+                let t = l.trim();
+                let plain = hits == 1 && (t.starts_with("import ") || t.starts_with("from ")) && !t.contains([';', '\\']) && seen.iter().any(|(s, _)| *s == n);
+                if !plain {
+                    out.push((n, "import".into()));
+                }
+            }
+        }
+    }
+    out
+}
+
+// Every import statement in a parsed program, in every body (functions, classes, branches never taken):
+// (line, module) as `import M` / `from M import` name it.
+fn ast_imports(body: &[crate::dynpy::parse::Stmt], out: &mut Vec<(usize, String)>) {
+    use crate::dynpy::parse::St;
+    for s in body {
+        match &s.st {
+            St::Import(v) => out.extend(v.iter().map(|(m, _)| (s.line, m.clone()))),
+            St::ImportFrom(m, _) => out.push((s.line, m.clone())),
+            St::Def(d) => ast_imports(&d.body, out),
+            St::Class(c) => ast_imports(&c.body, out),
+            St::If(arms, els) => {
+                arms.iter().for_each(|(_, b)| ast_imports(b, out));
+                els.iter().for_each(|b| ast_imports(b, out));
+            }
+            St::For(_, _, b, e) | St::While(_, b, e) => {
+                ast_imports(b, out);
+                e.iter().for_each(|b| ast_imports(b, out));
+            }
+            St::Try(b, hs, e, f) => {
+                ast_imports(b, out);
+                hs.iter().for_each(|h| ast_imports(&h.body, out));
+                e.iter().chain(f.iter()).for_each(|b| ast_imports(b, out));
+            }
+            St::With(_, b) => ast_imports(b, out),
+            _ => {}
+        }
+    }
+}
+
 // Puts the `allow` lines that `split` blanked back into an edited copy (for `brevi fix`, which writes the file).
 pub fn restore(orig: &str, edited: &str) -> String {
     let allow: Vec<&str> = orig.split('\n').collect();
@@ -1471,6 +1541,49 @@ pub fn check_src(src: &str, allowed: &[String]) -> Vec<Diag> {
 
 #[cfg(test)]
 mod tests {
+    // Every import Python's grammar finds is one the line checks read, or it is refused: `import asyncio; import
+    // _brevi_proc` must not reach a native module the line checks never saw.
+    #[test]
+    fn hidden_imports_are_found() {
+        let gaps = |s: &str| super::import_gaps(s).into_iter().map(|(_, m)| m).collect::<Vec<_>>();
+        assert_eq!(gaps("import asyncio; import _brevi_proc\n"), ["asyncio", "_brevi_proc"]);
+        assert_eq!(gaps("x = 1; from _brevi_proc import spawn\n"), ["_brevi_proc"]);
+        assert_eq!(gaps("if True: import _brevi_proc as q\n"), ["_brevi_proc"]);
+        assert_eq!(gaps("import \\\n    _brevi_proc\n"), ["_brevi_proc"]);
+        assert_eq!(gaps("def f():\n    x = 1; import _brevi_proc\n"), ["_brevi_proc"]);
+        assert_eq!(gaps("class C:\n    try: import os\n    except ImportError: pass\n"), ["os"]);
+        assert_eq!(gaps("import\tjson\n"), ["json"]);
+        // what the line checks read already
+        let ok = "import os, sys\nimport json  # c\nfrom collections import (\n    OrderedDict,\n)\nfrom math import sqrt as s\nfrom . import x\nfrom .m import y\ndef f():\n    import re\n    try:\n        import heapq\n    except ImportError:\n        pass\ns = 'import _brevi_proc; x'\n# import _brevi_proc; x\n";
+        assert_eq!(gaps(ok), Vec::<String>::new());
+        // a source the dynamic build's parser cannot read: held to the word (not in strings or comments)
+        assert_eq!(gaps("rust fn f() -> int:\n    1\nx = 1; import os\n"), ["import"]);
+        assert_eq!(gaps("rust fn f() -> int:\n    1\nimport os\ns = \"a; import b\"\n"), Vec::<String>::new());
+        // a hidden import needs the native grant (not --allow-py, which names modules the check must read)
+        let errs = super::check_src("import asyncio; import _brevi_proc\n", &["py:_brevi_proc".into(), "py:asyncio".into()]);
+        assert!(errs.iter().any(|d| d.msg.contains("a hidden import of _brevi_proc")), "{:?}", errs.iter().map(|d| &d.msg).collect::<Vec<_>>());
+    }
+
+    // _brevi_proc's glue refuses every call under --sandbox without the native grant, whatever reached it, and the
+    // compiler attaches it under --sandbox only with that grant.
+    #[test]
+    fn proc_glue_checks_the_grant() {
+        let glue = include_str!("dynpy/procglue.rs");
+        assert!(glue.contains("if super::PROC_SANDBOX && !super::PROC_NATIVE {"));
+        for op in ["op_spawn", "op_read", "op_write", "op_wait", "op_signal", "op_poll"] {
+            let at = glue.find(&format!("fn {op}(")).unwrap();
+            let body = &glue[at..];
+            let first = body.lines().nth(1).unwrap().trim();
+            assert_eq!(first, "held()?;", "{op} does not check the grant first");
+        }
+        let close = &glue[glue.find("fn op_close(").unwrap()..];
+        assert_eq!(close.lines().nth(1).unwrap().trim(), "if held().is_err() {");
+        let m = include_str!("dynpy/mod.rs");
+        assert!(m.contains("let proc_ok = !crate::caps::sandboxed() || crate::caps::granted(\"native\");"));
+        assert!(m.contains("if proc_ok && texts.iter().any(|(n, (_, t))| n != \"asyncio\" && t.contains(\"create_subprocess_\"))"));
+        assert!(m.contains("const PROC_SANDBOX: bool = {};\\nconst PROC_NATIVE: bool = {};"));
+    }
+
     #[test]
     fn keyword_lacks_are_whole_names() {
         assert!(super::lack_hit("Anthropic(config=c)", "config="));

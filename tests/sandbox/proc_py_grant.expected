@@ -1,0 +1,9 @@
+{"line":1,"msg":"asyncio runs in CPython, which needs allow native","fix":"do without it, or the caller grants it: --allow-py asyncio (MCP tools: \"allow_py\": [\"asyncio\"])"}
+note: not run with python3: with --sandbox or an allow line, Brevi never falls back to CPython, which cannot enforce allow lines
+exit 1
+-- dynamic
+{"e":"dyn","at":"tests/sandbox/proc_py_grant.py","line":0,"msg":"importing _brevi_proc, a module of Brevi's own (CPython has no such module), is not supported in dynamic builds"}
+exit 1
+-- typed
+{"line":1,"msg":"asyncio runs in CPython, which needs allow native","fix":"do without it, or the caller grants it: --allow-py asyncio (MCP tools: \"allow_py\": [\"asyncio\"])"}
+exit 1
