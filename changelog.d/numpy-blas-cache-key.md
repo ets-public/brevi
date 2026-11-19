@@ -1,1 +1,0 @@
-- Fixed: the result cache did not key on `OPENBLAS_CORETYPE` or the CPU's numpy BLAS kernels, so a numpy program built natively and then run again with `OPENBLAS_CORETYPE` naming other kernels replayed the native build (printing the modelled kernels' last digits instead of numpy's under that setting) rather than going to CPython. Both now choose the cache entry.
