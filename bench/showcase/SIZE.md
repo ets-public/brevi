@@ -15,8 +15,14 @@ Targets (Adam, 11-19): **time_mcp at most 8 MB, every showcase at most 10 MB, wi
 - `python3 bench/showcase/run.py --gate [--targets] [--runs N]`: the gate. It builds and times the bundler showcases
   (sqlite_mcp, time_mcp, count_tokens_file, count_tokens_tree) and fails (exit 1) when, against baseline.json:
   - a binary is more than 5% bigger,
-  - its first answer is more than 10% slower (a slow result is measured a second time and the faster one counts),
+  - its first answer is more than 10% slower,
+  - its release build takes more than 30% longer, or needs more than 30% more memory at its peak (so the size work,
+    LTO and `codegen-units=1` above all, cannot quietly make builds slow),
   - its output differs from CPython's, or it does not build.
+  A timed number over its limit is measured a second time and the better result counts; size is exact and is not.
+  The build is timed on a second `brevi build --release --no-cache` after a first build has left the runtime rlib
+  cached: rustc on the program and its library copies, as a rebuild after an edit runs. Peak memory is the largest
+  resident size of the build or any process it waited for (rustc, the linker), from wait4.
   With `--targets` it also fails on a binary over its target. The gate writes no results.json.
 - `python3 bench/showcase/run.py --record-baseline`: measures the gated showcases and writes baseline.json (and
   results.json). It refuses if any of them fails to build or differs from CPython.
@@ -47,6 +53,7 @@ Both are larger than results.json's 11-10 sizes (11.5 and 18.0 MB at 0.26.0): th
 | code: brevi_lib library copies | 1.1 MB (argparse, textwrap) | 6.6 MB (mcp models 0.9 MB, mcp 0.3 MB, pydantic, asyncio, sqlite3) |
 | code: the program itself | 0.4 MB | 0.3 MB |
 | code: std, core, alloc | 0.4 MB | 0.4 MB |
+| release rebuild (`--no-cache`), peak memory | 21.4 s, 498 MB | |
 
 What it points at, for the size lanes:
 - A2 (release profile): `strip=symbols` removes the 1.8-3.2 MB symbol table outright. The linker already drops runtime functions

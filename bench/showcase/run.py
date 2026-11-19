@@ -10,8 +10,8 @@
 #   python3 bench/showcase/run.py --gate [--targets]
 #
 # The size and startup gate (bench/showcase/SIZE.md): builds and times the GATED showcases and fails (exit 1) when a
-# binary is more than 5% bigger or its first answer more than 10% slower than bench/showcase/baseline.json, or when
-# its output differs from CPython's. Startup is only comparable on the machine the baseline was taken on, so a
+# binary is more than 5% bigger, its first answer more than 10% slower, or its release build more than 30% slower or
+# 30% hungrier for memory than bench/showcase/baseline.json, or when its output differs from CPython's. Startup is only comparable on the machine the baseline was taken on, so a
 # baseline from another CPU is refused (exit 2) rather than skipped. --targets also fails on a binary over its size
 # target (TARGETS). The gate writes no results.json; `--record-baseline` writes baseline.json from this run.
 import importlib.util
@@ -60,6 +60,17 @@ def cli_run(cmd, cwd, env=None):
     return r.stdout.decode() + "exit %d" % r.returncode, t, t
 
 
+def timed_build(cmd):
+    # Wall time and peak memory of a build. ru_maxrss from wait4 is the largest resident size of the build or any of
+    # the processes it waited for (rustc, the linker): the memory a machine needs for the build, in MB (Linux: KiB).
+    t0 = time.perf_counter()
+    p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _, status, ru = os.wait4(p.pid, 0)
+    if os.waitstatus_to_exitcode(status) != 0:
+        return None, None
+    return time.perf_counter() - t0, round(ru.ru_maxrss / 1024, 1)
+
+
 def links_python(binary):
     try:
         out = subprocess.run(["ldd", binary], capture_output=True, text=True).stdout
@@ -73,6 +84,8 @@ def links_python(binary):
 GATED = ["sqlite_mcp", "time_mcp", "count_tokens_file", "count_tokens_tree"]
 SIZE_GROWTH = 1.05  # a binary may grow at most 5% over the baseline
 START_GROWTH = 1.10  # and its first answer may be at most 10% slower
+BUILD_GROWTH = 1.30  # its release build may take at most 30% longer (Option A plan, lane A2)
+PEAK_GROWTH = 1.30  # and need at most 30% more memory at its peak
 # Size targets (Option A, Adam 11-19): time_mcp at most 8 MB, every showcase at most 10 MB. Bytes, as MB = 1e6.
 TARGETS = {"time_mcp": 8_000_000}
 TARGET_DEFAULT = 10_000_000
@@ -180,11 +193,14 @@ def measure(sc, runs, work):
                 shutil.copy(os.path.join(os.path.dirname(spec.origin), f), os.path.join(d, name))
         src = os.path.join(d, sc["file"])
     exe = os.path.join(work, sc["name"])
-    t0 = time.perf_counter()
     b = subprocess.run([BREVI, "build", src, "--release", "-o", exe], capture_output=True, text=True)
-    build_s = time.perf_counter() - t0
     if b.returncode != 0:
         return {"name": sc["name"], "error": (b.stdout + b.stderr).strip()[-400:]}
+    # The build cost, timed on a second build: the first one above leaves the runtime rlib built and cached, and
+    # --no-cache makes this one run rustc on the program again, as a rebuild after an edit does.
+    build_s, build_peak = timed_build([BREVI, "build", src, "--release", "--no-cache", "-o", exe + "_rebuilt"])
+    if build_s is None:
+        return {"name": sc["name"], "error": "the second build, with --no-cache, failed"}
     sides = {"brevi": [exe], "cpython": [sys.executable, src]}
     env = dict(os.environ, **sc.get("env", {}))
     res = {}
@@ -210,7 +226,8 @@ def measure(sc, runs, work):
         "brevi": res["brevi"], "cpython": res["cpython"],
         "speedup": res["cpython"]["first_s"] / res["brevi"]["first_s"],
         "binary_mb": round(os.path.getsize(exe) / 1e6, 1), "binary_bytes": os.path.getsize(exe),
-        "needs_python": links_python(exe), "build_s": build_s, "size": size_tool.breakdown(exe),
+        "needs_python": links_python(exe), "build_s": build_s,
+        "build_peak_mb": build_peak, "size": size_tool.breakdown(exe),
     }
 
 
@@ -241,8 +258,9 @@ def gate(results, base, targets, remeasure):
             fails.append("%s: output differs from CPython" % name)
         target = TARGETS.get(name, TARGET_DEFAULT)
         over = r["binary_bytes"] > target
-        print("%-18s %6.2f MB (target %.0f MB%s)  first answer %6.1f ms" % (
-            name, r["binary_bytes"] / 1e6, target / 1e6, ", OVER" if over else "", r["brevi"]["first_s"] * 1e3))
+        print("%-18s %6.2f MB (target %.0f MB%s)  first answer %6.1f ms  build %5.1f s, peak %6.0f MB" % (
+            name, r["binary_bytes"] / 1e6, target / 1e6, ", OVER" if over else "", r["brevi"]["first_s"] * 1e3,
+            r["build_s"], r["build_peak_mb"]))
         if targets and over:
             fails.append("%s: %.2f MB is over its %.0f MB target" % (name, r["binary_bytes"] / 1e6, target / 1e6))
         b = base["showcases"].get(name)
@@ -253,14 +271,24 @@ def gate(results, base, targets, remeasure):
             fails.append("%s: binary %.2f MB, baseline %.2f MB (+%.1f%%, limit +%.0f%%)" % (
                 name, r["binary_bytes"] / 1e6, b["binary_bytes"] / 1e6,
                 (r["binary_bytes"] / b["binary_bytes"] - 1) * 100, (SIZE_GROWTH - 1) * 100))
-        first = r["brevi"]["first_s"]
-        if first > b["first_s"] * START_GROWTH:
-            again = remeasure(name)
-            if again is not None and "error" not in again:
-                first = min(first, again["brevi"]["first_s"])
-            if first > b["first_s"] * START_GROWTH:
-                fails.append("%s: first answer %.1f ms, baseline %.1f ms (+%.0f%%, limit +%.0f%%; measured twice)" % (
-                    name, first * 1e3, b["first_s"] * 1e3, (first / b["first_s"] - 1) * 100, (START_GROWTH - 1) * 100))
+        # Timed numbers vary run to run, so a regression is measured a second time and the better result counts.
+        checks = [("first answer", lambda x: x["brevi"]["first_s"], b.get("first_s"), START_GROWTH, 1e3, "ms"),
+                  ("release build", lambda x: x["build_s"], b.get("build_s"), BUILD_GROWTH, 1, "s"),
+                  ("build peak memory", lambda x: x["build_peak_mb"], b.get("build_peak_mb"), PEAK_GROWTH, 1, "MB")]
+        again = None
+        for what, get, was, limit, scale, unit in checks:
+            if was is None:
+                fails.append("%s: baseline.json has no %s (record it again with --record-baseline)" % (name, what))
+                continue
+            now = get(r)
+            if now > was * limit:
+                if again is None:
+                    again = remeasure(name) or {"error": "not measured"}
+                if "error" not in again:
+                    now = min(now, get(again))
+            if now > was * limit:
+                fails.append("%s: %s %.1f %s, baseline %.1f %s (+%.0f%%, limit +%.0f%%; measured twice)" % (
+                    name, what, now * scale, unit, was * scale, unit, (now / was - 1) * 100, (limit - 1) * 100))
     return fails
 
 
@@ -326,6 +354,7 @@ def main():
         if bad:
             sys.exit("not recording a baseline: %s did not build or differ from CPython" % ", ".join(bad))
         out = dict(head, showcases={n: {"binary_bytes": fresh[n]["binary_bytes"], "first_s": fresh[n]["brevi"]["first_s"],
+                                        "build_s": fresh[n]["build_s"], "build_peak_mb": fresh[n]["build_peak_mb"],
                                         "runs": fresh[n]["runs"]} for n in GATED})
         json.dump(out, open(base_path, "w"), indent=1)
         print("wrote", os.path.relpath(base_path, ROOT))
