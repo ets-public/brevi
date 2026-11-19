@@ -2,6 +2,8 @@
 
 # Brevi
 
+> **Archived (19 November 2026).** Brevi is no longer developed and gets no further releases or security fixes. Why we stopped, what worked and what didn't: **[POSTMORTEM.md](POSTMORTEM.md)**.
+
 **The verified native runtime for agent-written Python.** Your agent writes the plain Python it already writes best. Brevi compiles it through Rust into a native binary, checks each run against CPython 3.13 with `brevi run --verify`, and says so in one line of JSON whenever it cannot build or cannot check a program. The agent gets back a certified native answer, CPython's own answer, or an answer marked unchecked in one JSON line, never an unchecked one presented as checked:
 
 ```
