@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>brevi.run: hosted Brevi for AI agents</title>
-<meta name="description" content="brevi.run will be the verified native runtime for agent-written Python as an API: send Python, get the native run checked, with no toolchain on the agent's machine. Coming soon; the compiler is available now.">
+<title>brevi.run: will not launch</title>
+<meta name="description" content="brevi.run, a planned hosted service for Brevi, will not launch: Brevi is archived.">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -20,56 +20,15 @@ __HEADER__
   <div class="hero-band ink">
     <div class="wrap hero">
       <div>
-        <p class="eyebrow">Hosted service, coming</p>
-        <h1>Compile and run your agent's Python with nothing to install</h1>
-        <p class="lede">brevi.run will be the verified native runtime for agent-written Python, as an API. An agent sends a Python program with its input and tests, and gets back the native output with a check (against CPython, or against Brevi's dynamic build under the sandbox), the test results, or one JSON line per error. The agent's machine needs <strong>no Rust toolchain, no Python and no sandbox</strong>.</p>
-        <div class="actions">
-          <a class="btn primary" href="https://brevi-lang.org/pricing#hosted">Join the waitlist</a>
-          <a class="btn ghost" href="__GITHUB__" rel="noopener">__GHICON__View on GitHub</a>
-          <a class="more" href="https://brevi-lang.org/docs/install">Use the compiler today →</a>
-        </div>
-        <p class="fine">Not open yet. The API here is a sketch and may change before launch. A playground in the browser is planned too.</p>
-        <p class="status jl">{"<b>status</b>":"not open yet","<b>api</b>":"sketch","<b>compiler</b>":"<a href="https://brevi-lang.org/docs/install">available now</a>"}</p>
-      </div>
-      <div class="term" aria-label="Example request and response">
-        <div class="tbar"><span>POST /run</span><span>request</span></div>
-<pre class="wrapline">{"files": {"main.py": "import sys\nprint(sum(map(int, sys.stdin.read().split())))"},
- "stdin": "3 4 5"}</pre>
-        <div class="tbar"><span>200 OK</span><span>response</span></div>
-<pre class="wrapline">{"ok": true, "native": true, "stdout": "12\n", "ms": 4, "verify": "identical"}</pre>
-        <div class="tbar"><span>POST /check</span><span>when something is wrong</span></div>
-<pre class="out wrapline">{"ok": false, "errors": [{"line": 2, "msg": "expected ')', found end of line", "fix": "insert ')'"}]}</pre>
+        <p class="eyebrow">Will not launch</p>
+        <h1>brevi.run will not launch</h1>
+        <p class="lede">Brevi was an experiment in compiling Python MCP servers and CLI tools into native binaries. On 19 November 2026 we built the ten most-downloaded Python MCP servers on PyPI, unchanged, with Brevi 0.28.3. None built natively: all ten needed the CPython bridge, and so Python on the run machine, and started at 1.00x to 1.16x CPython's time to the first tool call. Making them build would have meant copying large libraries one by one, so we stopped.</p>
+        <p class="fine">brevi.run was planned as a hosted service that runs agent-written Python with Brevi. With Brevi archived, it is cancelled and its waitlist is closed.</p>
+        <div class="actions"><a class="btn primary" href="https://github.com/ets-public/brevi/blob/main/POSTMORTEM.md" rel="noopener">Read the post-mortem</a><a class="btn ghost" href="https://github.com/ets-public/brevi/blob/main/bench/showcase/REAL_SERVERS.md" rel="noopener">Read the real-server report</a></div>
+        <p class="fine">Brevi has no external security audit. Its sandbox is a policy layer, not an isolation boundary; run untrusted code in a container or VM.</p>
       </div>
     </div>
   </div>
-
-  <section class="band">
-    <div class="wrap">
-      <div class="band-head">
-        <h2>Who it is for</h2>
-        <p>Agents that run in someone else's cloud, in a browser, or on a machine where nobody wants to install compilers.</p>
-      </div>
-      <div class="grid3">
-        <div class="point"><span class="fig">run · check · test</span><h3>The same tools as the MCP server</h3><p>The calls <code>brevi mcp</code> serves locally, over HTTPS: check a program, run it with input, or run test cases and get <code>ok</code> or the first differing line for each.</p></div>
-        <div class="point"><span class="fig">VM first</span><h3>Behind VM isolation</h3><p>The service opens only once runs are held in a VM or microVM and an outside security review is done. Inside it, Brevi's sandbox (a policy layer, not an isolation boundary) gives the program no files, network or environment unless the request grants them.</p></div>
-        <div class="point"><span class="fig">cached builds</span><h3>Cached builds</h3><p>Builds are cached by content, so when an agent reruns its tests after a one-line fix, only the changed program is rebuilt.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <section class="band">
-    <div class="wrap split" style="align-items: start; gap: 56px;">
-      <div class="band-head" style="margin: 0;">
-        <h2>Until then, run Brevi yourself</h2>
-        <p><!--public-->The compiler is open source under Apache-2.0 and runs on Linux, macOS and Windows.<!--/public--> <code>brevi mcp</code> gives any MCP client the same tools locally.</p>
-      </div>
-      <div class="cards" style="grid-template-columns: minmax(0, 1fr); gap: 12px;">
-        <a class="card" href="https://brevi-lang.org/docs/install"><h3>Install Brevi</h3><p>Release binaries, the install script, or build from source.</p></a>
-        <a class="card" href="https://brevi-lang.org/docs/agents"><h3>Connect an agent</h3><p>MCP server, Agent Skill, Claude Code plugin and llms.txt.</p></a>
-        <a class="card" href="https://brevi-lang.org/docs/roadmap"><h3>Roadmap</h3><p>What comes next, brevi.run included.</p></a>
-      </div>
-    </div>
-  </section>
 </main>
 
 __FOOTER__

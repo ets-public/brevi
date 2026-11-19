@@ -10,7 +10,7 @@ What is measured: for the servers, the time from start to the first tool call an
 | Showcase | What is timed | Brevi | CPython 3.13 | Faster | Same output | Binary | Needs Python |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [SQLite MCP server](repo:bench/showcase/sqlite_mcp.py) | Start to first tool call answered | **27 ms** | 718 ms | **26x** | yes | 18.0 MB | no |
-| [MCP time server](#the-official-mcp-time-server) (official, unchanged) | Start to first tool call answered | **35 ms** | 730 ms | **21x** | yes | 19.2 MB | no |
+| [MCP time server](#the-official-mcp-time-server) (official 2026.11.4, unchanged) | Start to first tool call answered | **35 ms** | 730 ms | **21x** | yes | 19.2 MB | no |
 | [Token count, one file](#token-counting) | Count of one file printed | **33 ms** | 375 ms | **11x** | yes | 11.5 MB | no |
 | [Token count, a source tree](#token-counting) | 1.8M tokens of Brevi's source counted | **395 ms** | 872 ms | **2.2x** | yes | 11.5 MB | no |
 | [micrograd](#micrograd) (Karpathy's, unchanged) | An MLP trained for 30 steps | **4.1 s** | 40.4 s | **9.7x** | yes | 6.5 MB | no |
@@ -24,7 +24,7 @@ Read the first three rows as start-up and import time: CPython spends most of it
 
 ## The official MCP time server
 
-[mcp-server-time](https://pypi.org/project/mcp-server-time/) is one of the reference servers the MCP project publishes, with 589k downloads a month. It tells a model the time in any IANA time zone and converts times between zones. Brevi builds its `server.py` as published, with no edits, into one 19.2 MB binary that does not link libpython. Brevi has its own `zoneinfo` and `tzlocal` for this: they read the system's time zone database and give the same answers as CPython's for every zone and every transition in it.
+[mcp-server-time](https://pypi.org/project/mcp-server-time/) is one of the reference servers the MCP project publishes, with 589k downloads a month. It tells a model the time in any IANA time zone and converts times between zones. Brevi builds its `server.py` as published, with no edits, into one 19.2 MB binary that needs no Python. The figures are for version 2026.11.4, pinned below. Its current release, 2026.11.18, no longer builds natively: it takes the CPython bridge.. Brevi has its own `zoneinfo` and `tzlocal` for this: they read the system's time zone database and give the same answers as CPython's for every zone and every transition in it.
 
 ```bash
 pip download mcp-server-time==2026.11.4 --no-deps
@@ -62,7 +62,8 @@ Under `--sandbox` it needs a read grant, and `--allow-read src,docs` holds it to
 
 - Binary sizes are not tuned yet: release builds are not stripped and use no link-time optimisation. Work to make them smaller is planned.
 - macOS is not measured. Brevi is released for macOS, but CI does not test the programs it builds there.
-- A server that imports a library Brevi does not build itself (pandas, yaml, ...) runs that library in CPython through the bridge. That binary needs libpython on the run machine, or `--standalone`, which packs CPython into the binary and unpacks it on first run. The fast start is lost on that path.
+- A server that imports a library Brevi does not build itself (pandas, yaml, ...) runs that library in CPython through the bridge. That binary needs Python 3.13 and the packages it was built against (the build venv's site-packages) on the run machine, or `--standalone`, which packs CPython and the packages into the binary and unpacks them on first run, but misses lazily imported packages. The fast start is lost on that path.
+- Most real MCP servers need the bridge today: of the ten most-downloaded Python MCP servers on PyPI, built unchanged on 19 November with Brevi 0.28.3, none built natively, and all ten took 1.00x to 1.16x CPython's time to the first tool call ([report](repo:bench/showcase/REAL_SERVERS.md)). These showcases are not typical of real servers yet.
 - Start-up is the win. The dynamic build most programs take runs at about CPython's speed on compute, as the whole-tree token count shows.
 - A real-server test of popular MCP servers and CLIs is under way, and its raw results will be published here.
 

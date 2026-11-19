@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Brevi: turn your Python MCP server or CLI into one fast binary</title>
-<meta name="description" content="Brevi compiles a Python MCP server or command-line tool, imports included, into one native binary that needs no Python on the machine that runs it and starts in milliseconds.">
+<title>Brevi: an archived experiment in compiling Python MCP servers</title>
+<meta name="description" content="Brevi was an experiment in compiling Python MCP servers into native binaries. It is archived: none of the ten most-downloaded Python MCP servers built natively.">
 <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -21,32 +21,28 @@ __HEADER__
   <div class="hero-band ink">
     <div class="wrap hero">
       <div>
-        <p class="eyebrow">For Python MCP servers and command-line tools</p>
-        <h1>Turn your Python MCP server or CLI into one fast binary.</h1>
-        <p class="lede">Brevi compiles the Python you already have, imports included, into one native file. The machine that runs it needs <strong>no Python, no virtualenv and no pip install</strong>, and an MCP server built this way answers its first tool call in tens of milliseconds instead of most of a second.</p>
-        <div class="install" aria-label="Build command"><span class="p">$</span><code>uvx brevi build server.py --release -o my-server</code><button class="copy" type="button" data-copy>Copy</button></div>
-        <p class="fine">One command with <a href="https://docs.astral.sh/uv/" rel="noopener">uv</a> on the machine that builds. With no Rust installed, the first build fetches Brevi's pinned Rust once (about 300 MB). Linux x86-64 and ARM64, macOS and Windows. <a href="/docs/install">Other ways to install</a>.</p>
+        <p class="eyebrow">Experimental · archived</p>
+        <h1>Brevi was an experiment, and it is archived.</h1>
+        <p class="lede">Brevi tried to compile Python MCP servers and command-line tools into one native binary that needs no Python and starts fast. It works on small programs, such as the showcases below, but it failed its first test on real servers: of the ten most-downloaded Python MCP servers on PyPI, built unchanged on 19 November 2026 with Brevi 0.28.3, <strong>none built natively</strong>. All ten needed the CPython bridge, and so Python on the run machine, and started at 1.00x to 1.16x CPython's time to the first tool call.</p>
         <div class="actions">
-          <a class="btn primary" href="/docs/bundle-mcp">Ship an MCP server</a>
-          <a class="btn ghost" href="__GITHUB__" rel="noopener">__GHICON__View on GitHub</a>
-          <a class="more" href="/docs/showcases">See the measurements →</a>
+          <a class="btn primary" href="__GITHUB__/blob/main/bench/showcase/REAL_SERVERS.md" rel="noopener">Read the real-server report</a>
+          <a class="btn ghost" href="__GITHUB__/blob/main/POSTMORTEM.md" rel="noopener">Read the post-mortem</a>
         </div>
-        <p class="fine">Brevi is a preview. Not every server builds yet; when one does not, the build says which line stopped it in one line of JSON. <a href="#limits">What to know before you ship</a>.</p>
+        <p class="fine">We are not developing Brevi further and do not recommend it for new projects. The rest of this page describes what Brevi does on the programs it does build, with the limits that apply.</p>
         <p class="status jl">__STATUS__</p>
       </div>
       <div class="term" aria-label="Build an MCP server into one binary and register it">
         <div class="tbar"><span>$ brevi build server.py --release -o time-mcp</span><span>build once</span></div>
-<pre class="out wrapline"># the official mcp-server-time, unchanged: one 19.2 MB file</pre>
-        <div class="tbar"><span>$ ldd time-mcp | grep -c libpython</span><span>no Python linked</span></div>
-<pre class="out wrapline">0</pre>
+<pre class="out wrapline"># the official mcp-server-time 2026.11.4, unchanged: one 19.2 MB file
+# stderr has no path line with a "py" list, so it needs no Python</pre>
         <div class="tbar"><span>$ claude mcp add time -- ./time-mcp</span><span>register it</span></div>
 <pre class="out wrapline"># first tool call answered in 35 ms (CPython 3.13: 730 ms)</pre>
       </div>
     </div>
     <div class="wrap">
       <div class="stats">
-        <div class="stat"><span class="num">1 file</span><span class="lab">To copy to the run machine</span><span class="sub">No Python, venv or packages there: native builds link no libpython</span></div>
-        <div class="stat"><span class="num">35 ms</span><span class="lab">To the first tool call</span><span class="sub">Official mcp-server-time, unchanged; CPython 3.13 takes 730 ms on the same machine</span></div>
+        <div class="stat"><span class="num">1 file</span><span class="lab">To copy to the run machine</span><span class="sub">No Python, venv or packages there: for a native build. A bridged build needs Python and its packages</span></div>
+        <div class="stat"><span class="num">35 ms</span><span class="lab">To the first tool call</span><span class="sub">Official mcp-server-time 2026.11.4, unchanged; CPython 3.13 takes 730 ms on the same machine. Its 2026.11.18 release needs the CPython bridge</span></div>
         <div class="stat"><span class="num">19.2 MB</span><span class="lab">That server's binary</span><span class="sub">Sizes are not tuned yet; making release binaries smaller is next</span></div>
         <div class="stat"><span class="num">0 edits</span><span class="lab">To the server's source</span><span class="sub">Brevi 0.26.0, Linux x86-64, Xeon 2.1 GHz, 4 cores, median of 10. <a href="/docs/showcases">How it was measured</a></span></div>
       </div>
@@ -78,7 +74,7 @@ __HEADER__
           <thead><tr><th></th><th>Shipped as Python</th><th class="win">Built with Brevi</th></tr></thead>
           <tbody>
             <tr><td>What the run machine needs</td><td>The right Python, a venv and the packages</td><td class="win">The binary (Linux: a glibc as new as the build machine's)</td></tr>
-            <tr><td>First tool call, mcp-server-time</td><td>730 ms</td><td class="win">35 ms</td></tr>
+            <tr><td>First tool call, mcp-server-time 2026.11.4</td><td>730 ms</td><td class="win">35 ms</td></tr>
             <tr><td>First tool call, SQLite MCP server</td><td>718 ms</td><td class="win">27 ms</td></tr>
             <tr><td>Counting tokens in one file (tiktoken)</td><td>375 ms</td><td class="win">33 ms</td></tr>
             <tr><td>Your source</td><td>Unchanged</td><td class="win">Unchanged</td></tr>
@@ -96,7 +92,7 @@ __HEADER__
         <p>The limits today, stated plainly. The <a href="/docs/roadmap">roadmap</a> says which ones are being worked on.</p>
       </div>
       <div class="grid3">
-        <div class="point"><span class="fig">{"path":"pybridge",...}</span><h3>Some imports need CPython</h3><p>A package Brevi does not build itself (pandas, yaml, ...) runs in CPython inside the binary. That binary needs Python's shared library on the run machine, or <code>--standalone</code> to carry it (Linux and Windows), which unpacks on its first run. Either way it loses the fast start.</p></div>
+        <div class="point"><span class="fig">{"path":"pybridge",...}</span><h3>Most real servers need CPython today</h3><p>A package Brevi does not build itself runs in CPython inside the binary. That binary needs Python 3.13 and the packages it was built against (the build venv's site-packages) on the run machine, and starts no faster than CPython. Of the ten most-downloaded Python MCP servers on PyPI, built unchanged on 19 November with Brevi 0.28.3, none built natively: all ten took the bridge, at 1.00x to 1.16x CPython's time to the first tool call (<a href="__GITHUB__/blob/main/bench/showcase/REAL_SERVERS.md">report</a>). <code>--standalone</code> (Linux and Windows) carries CPython instead, but misses packages imported lazily and broke 4 of the 10.</p></div>
         <div class="point"><span class="fig">Linux · macOS · Windows</span><h3>Where the binaries run</h3><p>Linux binaries link the system glibc, so build on the oldest Linux you target; there is no static build yet. Brevi is released for macOS, but programs built on macOS are not yet tested in CI. Windows is a beta, with its limits in <a href="__GITHUB__/blob/main/docs/KNOWN_ISSUES.md#windows-beta">Known issues</a>.</p></div>
         <div class="point"><span class="fig">0.85x median</span><h3>Start-up is the win, not throughput</h3><p>Most servers build over dynamic values, which run at about CPython's speed (0.5x to 1.4x on our compute benchmarks). A server that spends its time waiting on I/O or a model will not run its tool calls faster.</p></div>
         <div class="point"><span class="fig">RSS over days</span><h3>Long-running servers</h3><p>A built program does not yet free some memory, such as reference cycles. That is fine for a session-length server; watch the memory of one that runs for days. Making it stay flat is on the roadmap.</p></div>

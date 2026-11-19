@@ -1,14 +1,16 @@
 # Brevi documentation
-<!-- description: Brevi documentation: turn a Python MCP server or CLI into one native binary, install, build, ship, and what builds today. -->
+<!-- description: Brevi documentation (experimental, archived): what Brevi builds, how, and why real MCP servers did not build natively. -->
 
-**Turn your Python MCP server or CLI into one fast binary.** Brevi compiles the Python you already have, imports included, through Rust into one native file. The machine that runs it needs no Python, no virtualenv and no packages. New here? [Ship an MCP server or CLI](/docs/bundle-mcp) goes from `server.py` to a registered binary in a few commands.
+> **Brevi is experimental and archived.** It works on small programs, but of the ten most-downloaded Python MCP servers on PyPI, built unchanged on 19 November 2026 with Brevi 0.28.3, none built natively: all ten needed the CPython bridge, and so Python on the run machine, and started at 1.00x to 1.16x CPython's time to the first tool call. The [real-server report](repo:bench/showcase/REAL_SERVERS.md) has the data, and the [post-mortem](repo:POSTMORTEM.md) says what we built and why we stopped. We are not developing Brevi further and do not recommend it for new projects. The pages below describe what it does on the programs it does build.
+
+Brevi compiles Python through Rust into one native file. For a program it builds natively, the machine that runs it needs no Python, no virtualenv and no packages.
 
 ```
 $ brevi build server.py --release -o time-mcp     # build once
 $ claude mcp add time -- /full/path/to/time-mcp   # register it
 ```
 
-The official `mcp-server-time`, built unchanged this way, answers its first tool call in 35 ms where CPython 3.13 takes 730 ms, from one 19.2 MB file that links no libpython (Brevi 0.26.0, Linux x86-64, Intel Xeon at 2.10 GHz with 4 cores, median of 10 runs; [Showcases](/docs/showcases)). The win is start-up and import time: the dynamic build most servers take runs at about CPython's speed once started (median 0.85x on our compute benchmarks).
+The official `mcp-server-time` 2026.11.4, built unchanged this way, answers its first tool call in 35 ms where CPython 3.13 takes 730 ms, from one 19.2 MB file that needs no Python (Brevi 0.26.0, Linux x86-64, Intel Xeon at 2.10 GHz with 4 cores, median of 10 runs; [Showcases](/docs/showcases)). The win is start-up and import time: the dynamic build most servers take runs at about CPython's speed once started (median 0.85x on our compute benchmarks). (Its current release, 2026.11.18, no longer builds natively: it takes the CPython bridge.)
 
 Brevi is written in Rust and released under the Apache-2.0 license.
 
@@ -20,7 +22,7 @@ Brevi is written in Rust and released under the Apache-2.0 license.
 
 ## Before you ship
 
-- **Imports Brevi does not build itself** (pandas, yaml, ...) run in CPython inside the binary. That build needs Python's shared library on the run machine, or `--standalone` (Linux and Windows) to carry it, and loses the fast start. The build says so in one line.
+- **Imports Brevi does not build itself** (pandas, yaml, ...) run in CPython inside the binary. That build needs Python 3.13 and the packages it was built against (the build venv's site-packages) on the run machine, or `--standalone` (Linux and Windows) to carry them, which misses lazily imported packages. Either way it loses the fast start. The build says so in one line. Most real MCP servers need the bridge today: of the ten most-downloaded Python MCP servers on PyPI, built unchanged on 19 November with Brevi 0.28.3, none built natively, and all ten took 1.00x to 1.16x CPython's time to the first tool call ([report](repo:bench/showcase/REAL_SERVERS.md)).
 - **Linux binaries link glibc**: build on the oldest Linux you target. No static build yet.
 - **macOS**: released, but programs built there are not yet tested in CI. **Windows** is a beta.
 - **Long-running servers**: a built program does not yet free some memory, such as reference cycles; watch the memory of a server that runs for days.

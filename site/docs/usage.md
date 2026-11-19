@@ -20,7 +20,7 @@ To register a built MCP server with Claude Code: `claude mcp add my-server -- ./
 | Machine | Needs |
 | --- | --- |
 | Build | Brevi and Rust. With no `rustc` on the PATH, the first build fetches Brevi's pinned Rust (about 300 MB, once). See [Install](/docs/install). |
-| Run | Nothing for a native build. A pybridge build (see [Which path ran](#which-path-ran)) needs libpython, or must be built with `--standalone`. On Linux the binary links the system glibc, so build on the oldest Linux you target. |
+| Run | Nothing for a native build. A pybridge build (see [Which path ran](#which-path-ran)) needs Python 3.13 and the packages it was built against (the build venv's site-packages), or must be built with `--standalone`. On Linux the binary links the system glibc, so build on the oldest Linux you target. |
 
 More in [Ship an MCP server or CLI as one binary](/docs/bundle-mcp).
 
@@ -51,7 +51,7 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | `--release` | run, build | Optimise fully (rustc opt-level 3, the runtime inlined into the program). Builds take a few seconds longer; programs often run up to twice as fast as with the default build. Use it for a binary you keep. |
 | `--native` | run | Never fall back to CPython: print Brevi's errors instead. `BREVI_NATIVE=1` does the same. |
 | `--strict` | run, build, check, verify | From v0.28.0: no fallback of any kind, for CI and production jobs (see [Strict builds](#strict-builds)). `BREVI_STRICT=1` does the same. |
-| `--standalone` | build | For Python files that import libraries: pack CPython, the standard library and the imported packages into the binary, so it runs on a machine with no Python. Linux and Windows. |
+| `--standalone` | build | For Python files that import libraries: pack CPython, the standard library and the imported packages into the binary, so it runs on a machine with no Python. It misses packages imported lazily (inside a function), which then fail at run time. Linux and Windows. |
 | `--sandbox` | run, check, test | Refuse file access, native code and Python libraries unless the caller grants them (see [Sandbox](#sandbox)). |
 | `--allow read,write,net,native` | run, check, test | Under the sandbox, grant these capabilities (implies `--sandbox`). |
 | `--allow-read DIRS`, `--allow-write DIRS` | run, check, test | Under the sandbox, let the program read (or write) files only inside these folders or files, such as `--allow-read data --allow-write out` (implies `--sandbox`; from v0.26.0). |
@@ -349,8 +349,8 @@ window "tk"
 
 ## Libraries
 
-- **Python packages** in Python files: `import numpy as np`, `pandas`, `yaml`, `pathlib`, `subprocess` or any other installed module works. Its calls run in CPython inside the native program, so results are CPython's own. The program needs `libpython` where it runs, unless built with `--standalone`.
-- **Standalone binaries**: `brevi build x.py --standalone` carries CPython, the standard library and the imported packages (with what they require). The first run unpacks them once into `~/.cache/brevi/py` (`%LOCALAPPDATA%\brevi\py` on Windows), about 1 to 3 seconds; later runs start at normal speed. Expect about 13 MB for a standard-library program and 30 to 45 MB with numpy or pandas. Linux and Windows. A standalone binary uses only the Python it carries: if the file is changed after the build (code signing appends to it), it refuses to run instead of using an installed Python. On Windows the build is refused with Microsoft Store Python or a Python for another CPU. It is one file to copy, but it does not run in place: what it cannot carry or do:
+- **Python packages** in Python files: `import numpy as np`, `pandas`, `yaml`, `pathlib`, `subprocess` or any other installed module works. Its calls run in CPython inside the native program, so results are CPython's own. The program needs Python 3.13 and the packages it was built against (the build venv's site-packages) where it runs, unless built with `--standalone`.
+- **Standalone binaries**: `brevi build x.py --standalone` carries CPython, the standard library and the imported packages (with what they require). The first run unpacks them once into `~/.cache/brevi/py` (`%LOCALAPPDATA%\brevi\py` on Windows), about 1 to 3 seconds; later runs start at normal speed. Expect about 13 MB for a standard-library program and 30 to 45 MB with numpy or pandas. Linux and Windows. It finds packages from the imports it can see at build time, so a package imported lazily (inside a function) is left out and fails at run time; this broke 4 of the [10 popular MCP servers we tested](repo:bench/showcase/REAL_SERVERS.md). A standalone binary uses only the Python it carries: if the file is changed after the build (code signing appends to it), it refuses to run instead of using an installed Python. On Windows the build is refused with Microsoft Store Python or a Python for another CPU. It is one file to copy, but it does not run in place: what it cannot carry or do:
   - **Run without a writable cache.** The first run unpacks CPython into `BREVI_PY_CACHE`; on Windows a cache path that would put an unpacked file past 260 characters is refused (set `BREVI_PY_CACHE` shorter).
   - **Desktop and build tooling from the standard library:** `tkinter`, `turtle`, IDLE, the Tcl/Tk DLLs, `ensurepip`, `lib2to3` and the `test` packages are left out.
   - **Imports it cannot see at build time:** it carries the packages the program imports and what they import as they load, so a module imported only later, while the program runs (by a name built at run time, or lazily inside a library function), may be missing.

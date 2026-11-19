@@ -43,15 +43,11 @@ Watch stderr. When the whole server builds natively, the build prints nothing, o
 
 | Build prints | What it means for the run machine |
 | --- | --- |
-| nothing, or `{"path":"dynamic",...}` | Nothing to install. This is the fast-start build. |
-| `{"path":"pybridge","py":[...]}` | The listed imports run in CPython inside the binary. The run machine needs Python 3.13's shared library, or see [step 5](#5-when-an-import-needs-cpython). |
+| nothing, or `{"path":"dynamic",...}` with no `"py"` list | Nothing to install. This is the fast-start build. |
+| `{"path":"pybridge","py":[...]}`, or any path line with a `"py"` list | The listed imports run in CPython inside the binary. The run machine needs Python 3.13 and the packages it was built against (the build venv's site-packages), or see [step 5](#5-when-an-import-needs-cpython). |
 | `{"line":N,"msg":...}` and no binary | Brevi cannot build that line yet. The message names it. |
 
-To confirm the binary needs no Python, on Linux:
-
-```bash
-ldd words-mcp | grep -c libpython    # 0: no libpython linked
-```
+To confirm the binary needs no Python, read that path line: a build needs no Python only when it printed nothing, or a path line with no `"py"` list. `ldd` cannot tell you: a bridged binary loads Python at run time and does not show it in `ldd`.
 
 ## 3. Check it against CPython
 
@@ -84,8 +80,8 @@ Any other MCP client takes the binary as the server's command, with no arguments
 
 If the build printed `{"path":"pybridge",...}`, some imports run in CPython inside the binary. You have three choices:
 
-- **Ship it with Python's shared library on the run machine.** It works, but start-up then includes loading CPython and those imports, so most of the fast start is gone.
-- **Build with `--standalone`** (Linux and Windows, not macOS). It packs CPython, the standard library and the imported packages into the binary: about 13 MB more with the standard library only, 30 to 45 MB with numpy. The first run unpacks them to `~/.cache/brevi/py` (1 to 3 s); later runs start from there. Still no Python install on the run machine, but no fast start.
+- **Ship it with Python 3.13 and the packages it was built against (the build venv's site-packages) on the run machine.** It works, but start-up then includes loading CPython and those imports, so most of the fast start is gone.
+- **Build with `--standalone`** (Linux and Windows, not macOS). It packs CPython, the standard library and the imported packages into the binary: about 13 MB more with the standard library only, 30 to 45 MB with numpy. The first run unpacks them to `~/.cache/brevi/py` (1 to 3 s); later runs start from there. Still no Python install on the run machine, but no fast start, and it misses packages a server imports lazily (inside a function): those fail at run time. It broke 4 of the [10 popular servers we tested](repo:bench/showcase/REAL_SERVERS.md), so run your server's whole session on the standalone build before you ship it.
 - **Replace the import** with one Brevi builds natively, if the dependency is small. [What builds, and limits](/docs/compatibility) lists the native libraries.
 
 Servers that use sampling, elicitation, roots, auth, or the SSE and streamable HTTP apps run on CPython's `mcp` today, and servers written for the older `mcp.server.fastmcp.FastMCP` import do not build natively yet.
@@ -104,7 +100,9 @@ A token counter on tiktoken built this way prints the count of one file in 33 ms
 
 ## What to expect
 
-On the official `mcp-server-time`, built unchanged, the first tool call is answered in 35 ms against CPython 3.13's 730 ms, from a 19.2 MB binary that links no libpython (Brevi 0.26.0, Linux x86-64, Intel Xeon at 2.10 GHz with 4 cores, median of 10 runs). [Showcases](/docs/showcases) has the method and the other servers.
+On the official `mcp-server-time` 2026.11.4, built unchanged, the first tool call is answered in 35 ms against CPython 3.13's 730 ms, from a 19.2 MB binary that links no libpython (Brevi 0.26.0, Linux x86-64, Intel Xeon at 2.10 GHz with 4 cores, median of 10 runs). [Showcases](/docs/showcases) has the method and the other servers. (Its current release, 2026.11.18, no longer builds natively: it takes the CPython bridge.)
+
+Most real MCP servers need the bridge today: of the ten most-downloaded Python MCP servers on PyPI, built unchanged on 19 November with Brevi 0.28.3, none built natively, and all ten took 1.00x to 1.16x CPython's time to the first tool call ([report](repo:bench/showcase/REAL_SERVERS.md)).
 
 Limits today:
 
