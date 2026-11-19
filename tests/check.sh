@@ -981,6 +981,22 @@ for c in 'from unittest.mock import Mock\nclass D:\n    pass\nm = Mock(return_va
   o=$(BREVI_DYN=1 $BREVI run "$t/mk.py" 2>&1)
   case "$o" in "NotImplementedError: brevi: "*"${c#*|}"*) echo "ok   mock on a class stops: ${c#*|}" ;; *) echo "FAIL mock on a class does not stop: ${c#*|}"; printf '%s\n' "$o"; fail=1 ;; esac
 done
+# Brevi's own inspect has signature, Signature.parameters and Parameter (tests/dyn/inspect_signature.py has the
+# answers); constructing a Signature or a Parameter builds with CPython's inspect, whose signature cannot read the
+# program's defs (refused), and what a Parameter does not have stops the program.
+for c in 'from inspect import signature, Parameter\ndef f(a): pass\nprint(Parameter("a", Parameter.POSITIONAL_ONLY), signature(f))\n|inspect.signature' \
+         'import inspect\ndef f(a): pass\nprint(inspect.Signature([]), inspect.signature(f))\n|inspect.signature'; do
+  printf "${c%%|*}" > "$t/sg.py"
+  o=$(BREVI_DYN=1 $BREVI build "$t/sg.py" -o "$t/sg" 2>&1)
+  case "$o" in *"${c#*|}"*"needs CPython"*) echo "ok   inspect.Signature/Parameter construction refused at build" ;; *) echo "FAIL inspect.Signature/Parameter construction not refused at build"; printf '%s\n' "$o"; fail=1 ;; esac
+done
+for c in 'import inspect\ndef f(a): pass\nprint(inspect.signature(f).parameters["a"].replace(name="b"))\n|inspect.Parameter.replace' \
+         'import inspect\ndef f(a): pass\nprint(hash(inspect.signature(f).parameters["a"]))\n|hash() of an inspect.Parameter' \
+         'import inspect\nclass K:\n    pass\nprint(inspect.signature(K))\n|of a '"'"'type'"'"' object'; do
+  printf "${c%%|*}" > "$t/sg.py"
+  o=$(BREVI_DYN=1 $BREVI run "$t/sg.py" 2>&1)
+  case "$o" in *"NotImplementedError: brevi: "*"${c#*|}"*) echo "ok   inspect.signature stops: ${c#*|}" ;; *) echo "FAIL inspect.signature does not stop: ${c#*|}"; printf '%s\n' "$o"; fail=1 ;; esac
+done
 # locals() in an Enum's body is enum.EnumDict, whose writes check names (a member set twice is a TypeError); Brevi's
 # namespace is a plain dict, so a class that may be an Enum and calls locals() is refused when it builds.
 printf 'import enum\nclass E(enum.Enum):\n    A = 1\n    locals().update({"B": 2}, **{"A": 3})\nprint(list(E))\n' > "$t/el.py"
@@ -1231,12 +1247,33 @@ done
 # misspelt --sandbox) unless it follows --, a byte order mark may start a file, a `#` in an f-string's format spec
 # is no comment, and an uncaught error on the typed build names its class.
 for d in 0 1; do
-  for c in "a b|a b" "a --native b|a --native b" "a -- --x|a -- --x" "-- --x a|--x a" "--fast a b|a b" "a b -- c|a b -- c"; do
+  for c in "a b|a b" "a --native b|a --native b" "a -- --x|a -- --x" "-- --x a|--x a" "--fast a b|a b" "a b -- c|a b -- c" "-- --fast --sandbox a|--fast --sandbox a"; do
     out=$(BREVI_DYN=$d $BREVI run tests/cli/argv.py --native ${c%%|*} 2>&1); want=$("${BREVI_PYTHON:-python3}" tests/cli/argv.py ${c#*|})
     if [ "$out" = "$want" ]; then echo "ok   cli args ($d: ${c%%|*})"; else echo "FAIL cli args ($d: ${c%%|*})"; echo "want $want"; echo "got  $out"; fail=1; fi
   done
   out=$(BREVI_DYN=$d $BREVI run tests/cli/argv.py --native --sandbx 2>&1; echo "exit $?")
   if printf '%s\n' "$out" | grep -q 'no option --sandbx' && printf '%s\n' "$out" | grep -qx 'exit 2'; then echo "ok   cli unknown option refused ($d)"; else echo "FAIL cli unknown option refused ($d)"; printf '%s\n' "$out"; fail=1; fi
+  # Every command refuses an option it does not have, before or after FILE (a misspelt --sandbox built an
+  # unsandboxed binary and exited 0), and no output is written.
+  t=$(mktemp -d)
+  for c in "build tests/cli/argv.py --sandbx -o $t/x|brevi build has no option --sandbx (did you mean --sandbox?)" \
+           "build --sandbx tests/cli/argv.py -o $t/x|brevi build has no option --sandbx" \
+           "check tests/cli/argv.py --nope|brevi check has no option --nope" \
+           "emit tests/cli/argv.py --relase|brevi emit has no option --relase (did you mean --release?)" \
+           "fix tests/cli/argv.py -q|brevi fix has no option -q" \
+           "test tests/cli/argv.py --nocapture|put it after -- (brevi test FILE -- --nocapture)" \
+           "run --sandbx tests/cli/argv.py|brevi run has no option --sandbx" \
+           "build tests/cli/argv.py -o=$t/x|brevi build has no option -o=" \
+           "build tests/cli/argv.py --verify -o $t/x|brevi build has no option --verify" \
+           "run tests/cli/argv.py --timeout 5|--timeout is an option of brevi run --verify" \
+           "biuld tests/cli/argv.py|brevi has no command biuld"; do
+    out=$(BREVI_DYN=$d $BREVI ${c%%|*} --native 2>&1; echo "exit $?")
+    if printf '%s\n' "$out" | grep -qF -- "${c#*|}" && printf '%s\n' "$out" | grep -qx 'exit 2' && [ ! -e "$t/x" ]; then echo "ok   cli unknown option refused ($d: ${c%%|*})"; else echo "FAIL cli unknown option refused ($d: ${c%%|*})"; printf '%s\n' "$out"; fail=1; fi
+  done
+  out=$(BREVI_DYN=$d $BREVI build tests/cli/argv.py --native --allow=read --limit-free 2>&1; echo "exit $?")
+  printf '%s\n' "$out" | grep -qF 'no option --limit-free' || { echo "FAIL cli option after an = form ($d)"; printf '%s\n' "$out"; fail=1; }
+  if BREVI_DYN=$d $BREVI build tests/cli/argv.py --native --allow=read -o "$t/x" >/dev/null 2>&1 && [ -x "$t/x" ]; then echo "ok   cli --allow=VALUE taken ($d)"; else echo "FAIL cli --allow=VALUE taken ($d)"; fail=1; fi
+  rm -rf "$t"
   for f in fstring_spec bom; do
     out=$(BREVI_DYN=$d $BREVI run tests/cli/$f.py --native 2>&1); want=$("${BREVI_PYTHON:-python3}" tests/cli/$f.py 2>&1)
     if [ "$out" = "$want" ]; then echo "ok   cli $f ($d)"; else echo "FAIL cli $f ($d)"; printf '%s\n' "$want" | diff - "$(printf '%s\n' "$out" > /tmp/brevi_cli_$$; echo /tmp/brevi_cli_$$)"; fail=1; fi

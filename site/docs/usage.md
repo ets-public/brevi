@@ -12,6 +12,8 @@ brevi check main.py                    # build without running: errors only
 brevi build main.py -o app --release   # an optimised binary to keep or ship
 ```
 
+Every command refuses an option it does not have (exit code 2, naming the nearest real one), so a misspelt `--sandbox` stops the build instead of building without the sandbox. Words after `--` always go to the program.
+
 A file can import its sibling `.py` files and packages as usual (`import util`, `from models import Order`); Brevi joins them into one program, and errors name the right file.
 
 ## Commands
@@ -348,7 +350,7 @@ Running `brevi check`, `build` or `run` again on files that did not change repla
 
 From v0.27.0, `brevi run` and `brevi test` after an edit don't wait for the optimised build. They build the program unoptimised (rustc opt-level 0), run it at once, and build the optimised binary (opt-level 1, the default) in the background into the cache. The next run of the unchanged program uses the optimised one. On a 200-line program, a run after an edit went from 0.82 s to 0.32 s on the typed path, and from 1.50 s to 0.50 s on the dynamic path. The unoptimised binary runs slower (often 2x to 5x slower on loops), so for a long computation use `--release`, or set `BREVI_TIERED=0`. `brevi build` always makes the optimised binary, and so does a run with `--no-cache`. The very first build after installing Brevi, or after a Rust update, also builds Brevi's runtime library once, which takes about 5 to 15 seconds.
 
-Write the plain, direct program. Brevi runs plain loops over ints and lists several times faster than CPython (typed build: 1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks; when values change type it falls back to the dynamic build, median 0.85x), so code hand-tuned for CPython (bit tricks, packing values into big integers) is usually slower under Brevi, not faster.
+Write the plain, direct program. Brevi runs plain loops over ints and lists several times faster than CPython (typed build: 1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks; only a small share of CPython's own test programs take the typed build, and when values change type it falls back to the dynamic build, median 0.85x), so code hand-tuned for CPython (bit tricks, packing values into big integers) is usually slower under Brevi, not faster.
 
 ## Environment variables
 

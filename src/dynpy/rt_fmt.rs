@@ -518,8 +518,12 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::Module(m) => module_repr(m)?,
         V::View(x) => {
-            // kind 3 is a mappingproxy: the dict's own repr in `mappingproxy({...})`.
+            // kind 3 is a mappingproxy: the dict's own repr in `mappingproxy({...})` (an OrderedDict's
+            // is `OrderedDict({...})`).
             if x.1 == 3 {
+                if matches!(&x.0, V::Dict(d) if d.borrow().kind == 3) {
+                    return Ok(format!("mappingproxy({})", repr(&x.0)?));
+                }
                 if let V::Dict(d) = &x.0 {
                     let p = Rc::as_ptr(d) as usize;
                     if !guard(p) {
