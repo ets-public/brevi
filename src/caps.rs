@@ -32,6 +32,14 @@ pub static GRANT: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 // Whether this run is under --sandbox (or --allow / --allow-py, which imply it).
 pub static SANDBOX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+// `--allow-unlocked-python`: under --sandbox, CPython may run where the kernel cannot lock it to the file and
+// network grants (pybridge.rs lock_refusal); the program then warns on every start (pyrt_load.rs).
+pub static UNLOCKED_PY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn unlocked_py() -> bool {
+    UNLOCKED_PY.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub fn sandboxed() -> bool {
     SANDBOX.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -220,6 +228,9 @@ pub fn grant_flags() -> Vec<String> {
     }
     if !writes.is_empty() {
         out.extend(["--allow-write".to_string(), writes.join(",")]);
+    }
+    if unlocked_py() {
+        out.push("--allow-unlocked-python".to_string());
     }
     out
 }

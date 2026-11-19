@@ -283,19 +283,22 @@ struct Cfg {
     // `brevi mcp --trust-calls`: calls may turn the sandbox off and grant anything (only for a client trusted
     // as the person who started the server).
     trust: bool,
+    // `brevi mcp --allow-unlocked-python`: sandboxed calls that run CPython may build where the kernel cannot
+    // lock it (pybridge.rs lock_refusal); only the person who starts the server can say so, never a call.
+    unlocked: bool,
 }
 static CFG: OnceLock<Cfg> = OnceLock::new();
 fn cfg() -> &'static Cfg {
     CFG.get().expect("config")
 }
 
-const SERVE_USAGE: &str = "usage: brevi mcp [--timeout SECONDS] [--mem-mb MB (0: no limit)] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--trust-calls] [--http [HOST:]PORT [--token TOKEN] [--path /mcp] [--allow-origin ORIGIN]]";
+const SERVE_USAGE: &str = "usage: brevi mcp [--timeout SECONDS] [--mem-mb MB (0: no limit)] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--trust-calls] [--allow-unlocked-python] [--http [HOST:]PORT [--token TOKEN] [--path /mcp] [--allow-origin ORIGIN]]";
 
 // The flags that set the server's policy, as mcp_http.rs passes them on: (flag, takes a value).
-pub(crate) const POLICY_FLAGS: &[(&str, bool)] = &[("--allow", true), ("--allow-py", true), ("--allow-net", true), ("--allow-read", true), ("--allow-write", true), ("--trust-calls", false)];
+pub(crate) const POLICY_FLAGS: &[(&str, bool)] = &[("--allow", true), ("--allow-py", true), ("--allow-net", true), ("--allow-read", true), ("--allow-write", true), ("--trust-calls", false), ("--allow-unlocked-python", false)];
 
 fn parse_cfg(argv: &[String]) -> Result<Cfg, String> {
-    let mut c = Cfg { timeout: 20, mem_mb: default_mem_mb(), ceiling: vec![], trust: false };
+    let mut c = Cfg { timeout: 20, mem_mb: default_mem_mb(), ceiling: vec![], trust: false, unlocked: false };
     let mut i = 0;
     while i < argv.len() {
         let a = argv[i].as_str();
@@ -306,6 +309,11 @@ fn parse_cfg(argv: &[String]) -> Result<Cfg, String> {
             "--mem-mb" => c.mem_mb = num()?,
             "--trust-calls" => {
                 c.trust = true;
+                i += 1;
+                continue;
+            }
+            "--allow-unlocked-python" => {
+                c.unlocked = true;
                 i += 1;
                 continue;
             }
@@ -734,10 +742,13 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
     let n = |k: &str| a.get(k).and_then(|v| v.num()).map(|x| x as i64);
     // Sandboxed unless the call says otherwise, and the call may say so only on a server started with
     // --trust-calls: the model writes the calls, so it cannot turn its own sandbox off.
-    let (sandboxed, sandbox) = match grants(name, a, cfg().trust, &cfg().ceiling) {
+    let (sandboxed, mut sandbox) = match grants(name, a, cfg().trust, &cfg().ceiling) {
         Ok(g) => g,
         Err(m) => return (m, true),
     };
+    if sandboxed && cfg().unlocked {
+        sandbox.push("--allow-unlocked-python".into());
+    }
     let limit = Duration::from_secs(n("timeout").map_or(cfg().timeout, |t| t.clamp(1, 600) as u64));
     // The caller's resource limits on the program (validate checked each one).
     let mut lims = crate::proc::Limits::default();

@@ -1059,6 +1059,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     rust = borrow_cells(&rust);
     rust.push_str(&emit::ic_statics());
     if !used.is_empty() {
+        crate::pybridge::lock_refusal().map_err(|m| (file.to_string(), 0, format!("{m}; {}", crate::pybridge::LOCK_FIX)))?;
         crate::pybridge::set_file(file);
         rust.push_str(&crate::pybridge::dyn_runtime());
         rust.push_str(GLUE);
